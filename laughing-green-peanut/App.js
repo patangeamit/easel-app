@@ -1,7 +1,8 @@
 import 'react-native-gesture-handler';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Dimensions,
   FlatList,
   Image,
@@ -15,7 +16,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { createStackNavigator, TransitionPresets } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ARTWORKS_SEED } from './data/artworksSeed';
@@ -23,7 +23,7 @@ import { FALLBACK_IMAGE_URL, loadArtworks } from './lib/artworkData';
 
 const { width, height } = Dimensions.get('window');
 const Tab = createBottomTabNavigator();
-const DailyArtStack = createStackNavigator();
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
 const TAB_ICONS = {
   DailyArt: 'book-outline',
@@ -55,7 +55,7 @@ export default function App() {
             ),
           })}
         >
-          <Tab.Screen name="DailyArt" component={DailyArtStackScreen} />
+          <Tab.Screen name="DailyArt" component={DailyArtScreen} />
           <Tab.Screen name="Discover" children={() => <PlaceholderScreen title="Discover" />} />
           <Tab.Screen name="Search" children={() => <PlaceholderScreen title="Search" />} />
           <Tab.Screen name="Favourites" children={() => <PlaceholderScreen title="Favourites" />} />
@@ -66,10 +66,19 @@ export default function App() {
   );
 }
 
-function DailyArtStackScreen() {
+function DailyArtScreen() {
   const [artworks, setArtworks] = useState(ARTWORKS_SEED);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const insets = useSafeAreaInsets();
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const [activeIndex, setActiveIndex] = useState(0);
+  const viewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 60 }), []);
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (viewableItems[0]?.index != null) {
+      setActiveIndex(viewableItems[0].index);
+    }
+  }).current;
 
   useEffect(() => {
     let isMounted = true;
@@ -100,38 +109,6 @@ function DailyArtStackScreen() {
     };
   }, []);
 
-  return (
-    <DailyArtStack.Navigator
-      screenOptions={{
-        headerShown: false,
-        cardStyle: styles.stackCard,
-      }}
-    >
-      <DailyArtStack.Screen name="DailyArtPreview">
-        {(props) => (
-          <DailyArtPreviewScreen
-            {...props}
-            artworks={artworks}
-            loading={loading}
-            errorMessage={errorMessage}
-          />
-        )}
-      </DailyArtStack.Screen>
-      <DailyArtStack.Screen
-        name="DailyArtEssay"
-        component={DailyArtEssayScreen}
-        options={{
-          gestureDirection: 'vertical',
-          ...TransitionPresets.ModalSlideFromBottomIOS,
-        }}
-      />
-    </DailyArtStack.Navigator>
-  );
-}
-
-function DailyArtPreviewScreen({ artworks, loading, errorMessage, navigation }) {
-  const insets = useSafeAreaInsets();
-
   if (loading) {
     return (
       <View style={[styles.screen, styles.centeredState]}>
@@ -144,10 +121,12 @@ function DailyArtPreviewScreen({ artworks, loading, errorMessage, navigation }) 
   return (
     <View style={styles.screen}>
       <LinearGradient
-        colors={['#171009', '#0c0d12', '#07080b']}
-        locations={[0, 0.45, 1]}
+        colors={['#20150d', '#0d1018', '#06070b']}
+        locations={[0, 0.42, 1]}
         style={styles.backgroundGlow}
       />
+      <View style={styles.backgroundOrbOne} />
+      <View style={styles.backgroundOrbTwo} />
 
       {errorMessage ? (
         <View style={[styles.banner, { top: insets.top + 12 }]}>
@@ -155,10 +134,12 @@ function DailyArtPreviewScreen({ artworks, loading, errorMessage, navigation }) 
         </View>
       ) : null}
 
-      <FlatList
+      <AnimatedFlatList
         data={artworks}
         horizontal
         pagingEnabled
+        decelerationRate="fast"
+        directionalLockEnabled
         initialNumToRender={1}
         maxToRenderPerBatch={1}
         windowSize={2}
@@ -166,129 +147,153 @@ function DailyArtPreviewScreen({ artworks, loading, errorMessage, navigation }) 
         keyExtractor={(item) => item.id}
         getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
         showsHorizontalScrollIndicator={false}
-        renderItem={({ item }) => (
-          <DailyArtCard
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], {
+          useNativeDriver: false,
+        })}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        scrollEventThrottle={16}
+        renderItem={({ item, index }) => (
+          <DailyArtPage
             item={item}
+            index={index}
+            scrollX={scrollX}
             topInset={insets.top}
-            onOpenEssay={() => navigation.navigate('DailyArtEssay', { artwork: item })}
           />
         )}
       />
+
+      {/* <View style={[styles.pageIndicatorWrap, { bottom: insets.bottom + 88 }]}>
+        <Text style={styles.pageIndicatorKicker}>Daily curation</Text>
+        <View style={styles.pageIndicatorRow}>
+          {artworks.map((artwork, index) => (
+            <View
+              key={artwork.id}
+              style={[styles.pageIndicatorDot, index === activeIndex && styles.pageIndicatorDotActive]}
+            />
+          ))}
+        </View>
+      </View> */}
     </View>
   );
 }
 
-function DailyArtCard({ item, topInset, onOpenEssay }) {
-  const essayPreview = getEssayPreview(item.essay);
+function DailyArtPage({ item, index, scrollX, topInset }) {
+  const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
+  const imageTranslateX = scrollX.interpolate({
+    inputRange,
+    outputRange: [-28, 0, 28],
+    extrapolate: 'clamp',
+  });
+  const cardTranslateY = scrollX.interpolate({
+    inputRange,
+    outputRange: [16, 0, 16],
+    extrapolate: 'clamp',
+  });
+  const cardOpacity = scrollX.interpolate({
+    inputRange,
+    outputRange: [0.74, 1, 0.74],
+    extrapolate: 'clamp',
+  });
+  const essayParagraphs = item.essay.split('\n\n');
 
   return (
     <View style={styles.page}>
-      <View style={[styles.previewContent, { paddingTop: topInset + 18 }]}>
+      <ScrollView
+        bounces
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.dailyPageScrollContent, { paddingTop: topInset + 18 }]}
+      >
+        <View style={styles.dailyPageTopRow}>
+          <View>
+            <Text style={styles.mastheadEyebrow}>Daily art</Text>
+            <Text style={styles.mastheadTitle}>{item.dateLabel}</Text>
+          </View>
+          <View style={styles.iconRow}>
+            <RoundIcon name="heart-outline" />
+            <RoundIcon name="share-social-outline" />
+          </View>
+        </View>
 
-
-        <View style={styles.heroFrame}>
+        <Animated.View style={[styles.heroFrame, { transform: [{ translateX: imageTranslateX }] }]}>
           <Image
             source={{ uri: item.image || FALLBACK_IMAGE_URL }}
             resizeMode="cover"
             style={styles.heroImage}
           />
           <LinearGradient
-            colors={['rgba(255,255,255,0.06)', 'rgba(0,0,0,0.14)']}
-            locations={[0, 1]}
+            colors={['rgba(244,228,204,0.08)', 'rgba(11,12,17,0.15)', 'rgba(11,12,17,0.58)']}
+            locations={[0, 0.45, 1]}
             style={styles.heroGloss}
           />
-        </View>
+          {/* <View style={styles.heroBadge}>
+            <Text style={styles.heroBadgeText}>{item.dateLabel}</Text>
+          </View> */}
+        </Animated.View>
 
-        <View style={styles.previewPanel}>
-          <View style={styles.previewPanelTop}>
-            <View style={styles.previewHeader}>
-              <Text style={styles.dateBadge}>{item.dateLabel}</Text>
-              <View style={styles.iconRow}>
-                <RoundIcon name="heart-outline" />
-                <RoundIcon name="share-social-outline" />
+        <Animated.View
+          style={[
+            styles.previewPanel,
+            {
+              opacity: cardOpacity,
+              transform: [{ translateY: cardTranslateY }],
+            },
+          ]}
+        >
+          <Text style={styles.previewTitle}>{item.title}</Text>
+
+          <View style={styles.metadataRow}>
+            <View style={styles.artistChip}>
+              <View style={styles.artistAvatar}>
+                <Text style={styles.artistAvatarText}>{getInitials(item.artist)}</Text>
               </View>
+              <Text style={styles.artistName}>{item.artist}</Text>
             </View>
-            <Text style={styles.previewTitle}>{item.title}</Text>
-
-            <View style={styles.metadataRow}>
-              <View style={styles.artistChip}>
-                <View style={styles.artistAvatar}>
-                  <Text style={styles.artistAvatarText}>{getInitials(item.artist)}</Text>
-                </View>
-                <Text style={styles.artistName}>{item.artist}</Text>
-              </View>
-              <View style={styles.yearChip}>
-                <Text style={styles.yearChipText}>{item.year}</Text>
-              </View>
+            <View style={styles.yearChip}>
+              <Text style={styles.yearChipText}>{item.year}</Text>
             </View>
-
-            <View style={styles.previewDivider} />
-
-            <View style={styles.previewEssayContainer}>
-              <Text style={styles.previewEssay}>{essayPreview}</Text>
-            </View>
-          </View>
-
-          <Pressable style={styles.openEssayButton} onPress={onOpenEssay}>
-            <View>
-              <Text style={styles.openEssayLabel}>Read short essay</Text>
-              {/* <Text style={styles.openEssayHint}>Open the full essay and metadata</Text> */}
-            </View>
-            <View style={styles.arrowButton}>
-              <Ionicons name="arrow-up" size={18} color="#0b0c11" />
-            </View>
-          </Pressable>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function DailyArtEssayScreen({ route, navigation }) {
-  const insets = useSafeAreaInsets();
-  const { artwork: item } = route.params;
-
-  return (
-    <View style={styles.screen}>
-      <LinearGradient colors={['#121319', '#08090d']} style={styles.essayBackground} />
-
-      <View style={[styles.essayHeader, { paddingTop: insets.top + 10 }]}>
-        <Pressable style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-down" size={22} color="#f6f1e8" />
-        </Pressable>
-        <Text style={styles.essayHeaderLabel}>Daily Art Essay</Text>
-        <View style={styles.headerSpacer} />
-      </View>
-
-      <ScrollView
-        bounces
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.essayContent}
-      >
-        <Image
-          source={{ uri: item.image || FALLBACK_IMAGE_URL }}
-          resizeMode="cover"
-          style={styles.essayHero}
-        />
-
-        <View style={styles.essayCard}>
-          <Text style={styles.essayTitle}>{item.title}</Text>
-          <Text style={styles.essaySubtitle}>{item.medium}</Text>
-
-          <View style={styles.essayInfoGrid}>
-            <InfoPill label="Artist" value={item.artist} />
-            <InfoPill label="Year" value={item.year} />
-            <InfoPill label="Edition" value={item.dateLabel} />
           </View>
 
           <View style={styles.previewDivider} />
 
-          {item.essay.split('\n\n').map((paragraph, index) => (
-            <Text key={`${item.id}-${index}`} style={styles.essayBody}>
-              {paragraph}
+          <Text style={styles.previewMeta}>{item.medium}</Text>
+
+{/* 
+          <View style={styles.summaryCard}>
+            <Text style={styles.sectionLabel}>Curator note</Text>
+            <Text style={styles.previewEssay}>{getEssayPreview(item.essay)}</Text>
+          </View> */}
+
+          {/* <View style={styles.metricsRow}>
+            <InfoPill label="Artist" value={item.artist} />
+            <InfoPill label="Made in" value={item.year} />
+          </View> */}
+
+          <View style={styles.sectionBlock}>
+            <Text style={styles.sectionLabel}>Why today&apos;s pick matters</Text>
+            {essayParagraphs.map((paragraph, paragraphIndex) => (
+              <Text key={`${item.id}-${paragraphIndex}`} style={styles.essayBody}>
+                {paragraph}
+              </Text>
+            ))}
+          </View>
+
+          {/* <View style={styles.footerCard}>
+            <Text style={styles.footerCardTitle}>Swipe for the next day</Text>
+            <Text style={styles.footerCardText}>
+              Each page keeps its own scroll, so the journey feels calm, tactile, and uninterrupted.
             </Text>
-          ))}
-        </View>
+            <View style={styles.footerActionRow}>
+              <Pressable style={styles.openEssayButton}>
+                <Text style={styles.openEssayLabel}>Saved to today&apos;s collection</Text>
+              </Pressable>
+              <View style={styles.arrowButton}>
+                <Ionicons name="arrow-forward" size={18} color="#111218" />
+              </View>
+            </View>
+          </View> */}
+        </Animated.View>
       </ScrollView>
     </View>
   );
@@ -302,6 +307,7 @@ function InfoPill({ label, value }) {
     </View>
   );
 }
+
 
 function RoundIcon({ name }) {
   return (
@@ -336,9 +342,6 @@ function getEssayPreview(essay) {
 }
 
 const styles = StyleSheet.create({
-  stackCard: {
-    backgroundColor: '#07080b',
-  },
   screen: {
     flex: 1,
     backgroundColor: '#07080b',
@@ -356,6 +359,24 @@ const styles = StyleSheet.create({
   },
   backgroundGlow: {
     ...StyleSheet.absoluteFillObject,
+  },
+  backgroundOrbOne: {
+    position: 'absolute',
+    top: -60,
+    right: -30,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(210, 158, 95, 0.12)',
+  },
+  backgroundOrbTwo: {
+    position: 'absolute',
+    left: -80,
+    bottom: height * 0.2,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: 'rgba(84, 116, 156, 0.1)',
   },
   banner: {
     position: 'absolute',
@@ -376,16 +397,31 @@ const styles = StyleSheet.create({
     width,
     height,
   },
-  previewContent: {
-    flex: 1,
+  dailyPageScrollContent: {
     paddingHorizontal: 18,
-    paddingBottom: 120,
+    paddingBottom: 140,
   },
-  previewHeader: {
+  dailyPageTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 18,
+    marginBottom: 20,
+    gap: 12,
+  },
+  mastheadEyebrow: {
+    color: '#d1b48c',
+    fontSize: 12,
+    letterSpacing: 2.2,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    fontWeight: '700',
+  },
+  mastheadTitle: {
+    color: '#f7f3ec',
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: '700',
+    maxWidth: width * 0.58,
   },
   dateBadge: {
     color: '#fff4e8',
@@ -411,8 +447,8 @@ const styles = StyleSheet.create({
   },
   heroFrame: {
     width: '100%',
-    height: height * 0.42,
-    borderRadius: 34,
+    height: height * 0.44,
+    borderRadius: 36,
     overflow: 'hidden',
     backgroundColor: '#171920',
     borderWidth: 1,
@@ -430,30 +466,48 @@ const styles = StyleSheet.create({
   heroGloss: {
     ...StyleSheet.absoluteFillObject,
   },
+  heroBadge: {
+    position: 'absolute',
+    left: 18,
+    bottom: 18,
+    backgroundColor: 'rgba(11, 12, 17, 0.72)',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(247, 243, 236, 0.12)',
+  },
+  heroBadgeText: {
+    color: '#fff4e8',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+  },
   previewPanel: {
-    flex: 1,
     marginTop: -28,
     backgroundColor: 'rgba(15, 16, 21, 0.98)',
-    borderRadius: 30,
-    paddingHorizontal: 20,
-    paddingTop: 24,
+    borderRadius: 32,
+    paddingHorizontal: 22,
+    paddingTop: 26,
     paddingBottom: 22,
     borderWidth: 1,
     borderColor: 'rgba(245, 234, 214, 0.06)',
-  },
-  previewPanelTop: {
-    flex: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 12,
   },
   previewTitle: {
     color: '#f7f3ec',
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: '700',
-    letterSpacing: -0.8,
+    letterSpacing: -1,
   },
   previewMeta: {
-    marginTop: 8,
-    color: '#a2a6b0',
-    fontSize: 16,
+    marginTop: 14,
+    color: '#959aa5',
+    fontSize: 15,
     lineHeight: 24,
   },
   metadataRow: {
@@ -518,32 +572,35 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   previewEssay: {
-    color: '#b0b4bd',
+    color: '#c5c8cf',
     fontSize: 16,
-    lineHeight: 28,
+    lineHeight: 29,
   },
-  previewEssayContainer: {
-    flex: 1,
+  summaryCard: {
+    backgroundColor: '#171a21',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
+  metricsRow: {
+    marginTop: 14,
+    gap: 10,
+  },
+  sectionBlock: {
+    marginTop: 20,
   },
   openEssayButton: {
-    marginTop: 22,
     backgroundColor: '#efe3cc',
-    borderRadius: 24,
+    borderRadius: 999,
     paddingHorizontal: 18,
-    paddingVertical: 16,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
   openEssayLabel: {
     color: '#15161c',
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '700',
-  },
-  openEssayHint: {
-    color: '#4b4d56',
-    fontSize: 13,
-    marginTop: 4,
   },
   arrowButton: {
     width: 42,
@@ -552,67 +609,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#c9b18a',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  essayBackground: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  essayHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingBottom: 12,
-  },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: 'rgba(27, 29, 34, 0.96)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  essayHeaderLabel: {
-    color: '#f5efe6',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  headerSpacer: {
-    width: 42,
-  },
-  essayContent: {
-    paddingHorizontal: 18,
-    paddingBottom: 120,
-  },
-  essayHero: {
-    width: '100%',
-    height: height * 0.34,
-    borderRadius: 28,
-    marginBottom: 18,
-    backgroundColor: '#171920',
-  },
-  essayCard: {
-    backgroundColor: '#101116',
-    borderRadius: 30,
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 234, 214, 0.06)',
-  },
-  essayTitle: {
-    color: '#f7f3ec',
-    fontSize: 30,
-    fontWeight: '700',
-    letterSpacing: -0.8,
-  },
-  essaySubtitle: {
-    color: '#a1a6af',
-    fontSize: 16,
-    lineHeight: 24,
-    marginTop: 8,
-  },
-  essayInfoGrid: {
-    marginTop: 18,
-    gap: 10,
   },
   infoPill: {
     backgroundColor: '#1a1d24',
@@ -638,6 +634,64 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 30,
     marginBottom: 18,
+  },
+  footerCard: {
+    marginTop: 10,
+    backgroundColor: '#12151d',
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 234, 214, 0.05)',
+  },
+  footerCardTitle: {
+    color: '#f3efe7',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  footerCardText: {
+    color: '#959aa5',
+    fontSize: 15,
+    lineHeight: 24,
+  },
+  footerActionRow: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  pageIndicatorWrap: {
+    position: 'absolute',
+    alignSelf: 'center',
+    alignItems: 'center',
+    gap: 10,
+  },
+  pageIndicatorKicker: {
+    color: '#8f949d',
+    fontSize: 12,
+    letterSpacing: 1.7,
+    textTransform: 'uppercase',
+    fontWeight: '700',
+  },
+  pageIndicatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(8, 9, 13, 0.76)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  pageIndicatorDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(244, 239, 232, 0.25)',
+  },
+  pageIndicatorDotActive: {
+    width: 26,
+    backgroundColor: '#e7d2ae',
   },
   tabBar: {
     position: 'absolute',
