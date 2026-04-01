@@ -10,6 +10,7 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
@@ -33,18 +34,113 @@ const TAB_ICONS = {
   Settings: 'settings-outline',
 };
 
+const THEMES = {
+  dark: {
+    isLight: false,
+    statusBarStyle: 'light-content',
+    screenBackground: '#07080b',
+    gradient: ['#20150d', '#0d1018', '#06070b'],
+    orbOne: 'rgba(210, 158, 95, 0.12)',
+    orbTwo: 'rgba(84, 116, 156, 0.1)',
+    bannerBackground: 'rgba(125, 52, 52, 0.94)',
+    bannerText: '#fff4e8',
+    tabBarBackground: 'rgba(8, 9, 13, 0.96)',
+    tabBarActive: '#f3efe7',
+    tabBarInactive: '#6f7179',
+    stateText: '#f4efe8',
+    loadingIndicator: '#f3efe7',
+    mastheadEyebrow: '#d1b48c',
+    title: '#f7f3ec',
+    roundIconBackground: 'rgba(28, 31, 39, 0.88)',
+    roundIconForeground: '#f7f3ec',
+    heroFrameBackground: '#171920',
+    heroFrameBorder: 'rgba(245, 234, 214, 0.08)',
+    previewBackground: 'rgba(15, 16, 21, 0.98)',
+    previewBorder: 'rgba(245, 234, 214, 0.06)',
+    medium: '#959aa5',
+    artistChipBackground: '#21242c',
+    artistAvatarBackground: '#d8d3c8',
+    artistAvatarText: '#1b1d22',
+    artistName: '#f7f3ec',
+    yearChipBackground: '#171a20',
+    yearChipText: '#f7f3ec',
+    divider: '#20232b',
+    sectionLabel: '#c8b48e',
+    essayBody: '#b0b4bd',
+    placeholderIcon: '#d4c4ab',
+    placeholderTitle: '#f4efe8',
+    placeholderText: '#9ea2aa',
+    settingsCard: '#151922',
+    settingsCardBorder: 'rgba(245, 234, 214, 0.08)',
+    settingsLabel: '#f3efe7',
+    settingsDescription: '#a2a7b0',
+    settingsValue: '#cdb38d',
+    switchTrackFalse: '#2c3340',
+    switchTrackTrue: '#d8be93',
+    switchThumb: '#fffaf2',
+  },
+  light: {
+    isLight: true,
+    statusBarStyle: 'dark-content',
+    screenBackground: '#f6f0e6',
+    gradient: ['#fff8ef', '#f2eadf', '#eae0d4'],
+    orbOne: 'rgba(224, 177, 120, 0.22)',
+    orbTwo: 'rgba(115, 150, 191, 0.14)',
+    bannerBackground: 'rgba(188, 92, 92, 0.92)',
+    bannerText: '#fffaf4',
+    tabBarBackground: 'rgba(252, 248, 241, 0.96)',
+    tabBarActive: '#2f2c26',
+    tabBarInactive: '#968c80',
+    stateText: '#2f2c26',
+    loadingIndicator: '#2f2c26',
+    mastheadEyebrow: '#9a6d2e',
+    title: '#241f1a',
+    roundIconBackground: 'rgba(255, 251, 245, 0.96)',
+    roundIconForeground: '#2d2924',
+    heroFrameBackground: '#efe6da',
+    heroFrameBorder: 'rgba(84, 62, 37, 0.08)',
+    previewBackground: 'rgba(255, 252, 247, 0.98)',
+    previewBorder: 'rgba(84, 62, 37, 0.08)',
+    medium: '#6d655c',
+    artistChipBackground: '#efe7db',
+    artistAvatarBackground: '#c9bca8',
+    artistAvatarText: '#2e261d',
+    artistName: '#241f1a',
+    yearChipBackground: '#f2e8dc',
+    yearChipText: '#241f1a',
+    divider: '#e0d6ca',
+    sectionLabel: '#8f6733',
+    essayBody: '#5f594f',
+    placeholderIcon: '#9f7d4a',
+    placeholderTitle: '#241f1a',
+    placeholderText: '#71695e',
+    settingsCard: '#fffaf3',
+    settingsCardBorder: 'rgba(84, 62, 37, 0.08)',
+    settingsLabel: '#241f1a',
+    settingsDescription: '#72695f',
+    settingsValue: '#8f6733',
+    switchTrackFalse: '#d5cbc0',
+    switchTrackTrue: '#d3ab67',
+    switchThumb: '#fffdf8',
+  },
+};
+
 export default function App() {
+  const [isLightTheme, setIsLightTheme] = useState(false);
+  const [dailyArtResetSignal, setDailyArtResetSignal] = useState(0);
+  const theme = isLightTheme ? THEMES.light : THEMES.dark;
+
   return (
     <SafeAreaProvider>
       <NavigationContainer>
-        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+        <StatusBar barStyle={theme.statusBarStyle} translucent backgroundColor="transparent" />
         <Tab.Navigator
           screenOptions={({ route }) => ({
             headerShown: false,
             tabBarShowLabel: true,
-            tabBarActiveTintColor: '#f3efe7',
-            tabBarInactiveTintColor: '#6f7179',
-            tabBarStyle: styles.tabBar,
+            tabBarActiveTintColor: theme.tabBarActive,
+            tabBarInactiveTintColor: theme.tabBarInactive,
+            tabBarStyle: [styles.tabBar, { backgroundColor: theme.tabBarBackground }],
             tabBarLabelStyle: styles.tabLabel,
             tabBarIcon: ({ color, size, focused }) => (
               <Ionicons
@@ -55,23 +151,47 @@ export default function App() {
             ),
           })}
         >
-          <Tab.Screen name="DailyArt" component={DailyArtScreen} />
-          <Tab.Screen name="Discover" children={() => <PlaceholderScreen title="Discover" />} />
-          <Tab.Screen name="Search" children={() => <PlaceholderScreen title="Search" />} />
-          <Tab.Screen name="Favourites" children={() => <PlaceholderScreen title="Favourites" />} />
-          <Tab.Screen name="Settings" children={() => <PlaceholderScreen title="Settings" />} />
+          <Tab.Screen
+            name="DailyArt"
+            listeners={{
+              tabPress: () => {
+                setDailyArtResetSignal((currentSignal) => currentSignal + 1);
+              },
+            }}
+          >
+            {() => <DailyArtScreen theme={theme} resetToLatestSignal={dailyArtResetSignal} />}
+          </Tab.Screen>
+          <Tab.Screen name="Discover">
+            {() => <PlaceholderScreen title="Discover" theme={theme} />}
+          </Tab.Screen>
+          <Tab.Screen name="Search">
+            {() => <PlaceholderScreen title="Search" theme={theme} />}
+          </Tab.Screen>
+          <Tab.Screen name="Favourites">
+            {() => <PlaceholderScreen title="Favourites" theme={theme} />}
+          </Tab.Screen>
+          <Tab.Screen name="Settings">
+            {() => (
+              <SettingsScreen
+                theme={theme}
+                isLightTheme={isLightTheme}
+                onToggleTheme={setIsLightTheme}
+              />
+            )}
+          </Tab.Screen>
         </Tab.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
   );
 }
 
-function DailyArtScreen() {
+function DailyArtScreen({ theme, resetToLatestSignal }) {
   const [artworks, setArtworks] = useState(ARTWORKS_SEED);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const insets = useSafeAreaInsets();
   const scrollX = useRef(new Animated.Value(0)).current;
+  const flatListRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const viewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 60 }), []);
   const onViewableItemsChanged = useRef(({ viewableItems }) => {
@@ -109,32 +229,42 @@ function DailyArtScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!flatListRef.current || artworks.length === 0) {
+      return;
+    }
+
+    flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+    setActiveIndex(0);
+  }, [artworks.length, resetToLatestSignal]);
+
   if (loading) {
     return (
-      <View style={[styles.screen, styles.centeredState]}>
-        <ActivityIndicator size="large" color="#f3efe7" />
-        <Text style={styles.stateText}>Loading today&apos;s art...</Text>
+      <View style={[styles.screen, styles.centeredState, { backgroundColor: theme.screenBackground }]}>
+        <ActivityIndicator size="large" color={theme.loadingIndicator} />
+        <Text style={[styles.stateText, { color: theme.stateText }]}>Loading today&apos;s art...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: theme.screenBackground }]}>
       <LinearGradient
-        colors={['#20150d', '#0d1018', '#06070b']}
+        colors={theme.gradient}
         locations={[0, 0.42, 1]}
         style={styles.backgroundGlow}
       />
-      <View style={styles.backgroundOrbOne} />
-      <View style={styles.backgroundOrbTwo} />
+      <View style={[styles.backgroundOrbOne, { backgroundColor: theme.orbOne }]} />
+      <View style={[styles.backgroundOrbTwo, { backgroundColor: theme.orbTwo }]} />
 
       {errorMessage ? (
-        <View style={[styles.banner, { top: insets.top + 12 }]}>
-          <Text style={styles.bannerText}>{errorMessage}</Text>
+        <View style={[styles.banner, { top: insets.top + 12, backgroundColor: theme.bannerBackground }]}>
+          <Text style={[styles.bannerText, { color: theme.bannerText }]}>{errorMessage}</Text>
         </View>
       ) : null}
 
       <AnimatedFlatList
+        ref={flatListRef}
         data={artworks}
         horizontal
         pagingEnabled
@@ -159,6 +289,7 @@ function DailyArtScreen() {
             index={index}
             scrollX={scrollX}
             topInset={insets.top}
+            theme={theme}
           />
         )}
       />
@@ -178,7 +309,7 @@ function DailyArtScreen() {
   );
 }
 
-function DailyArtPage({ item, index, scrollX, topInset }) {
+function DailyArtPage({ item, index, scrollX, topInset, theme }) {
   const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
   const imageTranslateX = scrollX.interpolate({
     inputRange,
@@ -207,21 +338,26 @@ function DailyArtPage({ item, index, scrollX, topInset }) {
       >
         <View style={styles.dailyPageTopRow}>
           <View>
-            <Text style={styles.mastheadEyebrow}>Daily art</Text>
-            <Text style={styles.mastheadTitle}>{item.dateLabel}</Text>
+            <Text style={[styles.mastheadEyebrow, { color: theme.mastheadEyebrow }]}>Daily art</Text>
+            <Text style={[styles.mastheadTitle, { color: theme.title }]}>{item.dateLabel}</Text>
           </View>
           <View style={styles.iconRow}>
-            <RoundIcon name="heart-outline" />
-            <RoundIcon name="share-social-outline" />
+            <RoundIcon name="heart-outline" theme={theme} />
+            <RoundIcon name="share-social-outline" theme={theme} />
           </View>
         </View>
 
-        <Animated.View style={[styles.heroFrame, { transform: [{ translateX: imageTranslateX }] }]}>
-          <Image
-            source={{ uri: item.image || FALLBACK_IMAGE_URL }}
-            resizeMode="cover"
-            style={styles.heroImage}
-          />
+        <Animated.View
+          style={[
+            styles.heroFrame,
+            {
+              transform: [{ translateX: imageTranslateX }],
+              backgroundColor: theme.heroFrameBackground,
+              borderColor: theme.heroFrameBorder,
+            },
+          ]}
+        >
+          <ArtworkHeroImage imageUri={item.image || FALLBACK_IMAGE_URL} />
           <LinearGradient
             colors={['rgba(244,228,204,0.08)', 'rgba(11,12,17,0.15)', 'rgba(11,12,17,0.58)']}
             locations={[0, 0.45, 1]}
@@ -238,26 +374,30 @@ function DailyArtPage({ item, index, scrollX, topInset }) {
             {
               opacity: cardOpacity,
               transform: [{ translateY: cardTranslateY }],
+              backgroundColor: theme.previewBackground,
+              borderColor: theme.previewBorder,
             },
           ]}
         >
-          <Text style={styles.previewTitle}>{item.title}</Text>
+          <Text style={[styles.previewTitle, { color: theme.title }]}>{item.title}</Text>
 
           <View style={styles.metadataRow}>
-            <View style={styles.artistChip}>
-              <View style={styles.artistAvatar}>
-                <Text style={styles.artistAvatarText}>{getInitials(item.artist)}</Text>
+            <View style={[styles.artistChip, { backgroundColor: theme.artistChipBackground }]}>
+              <View style={[styles.artistAvatar, { backgroundColor: theme.artistAvatarBackground }]}>
+                <Text style={[styles.artistAvatarText, { color: theme.artistAvatarText }]}>
+                  {getInitials(item.artist)}
+                </Text>
               </View>
-              <Text style={styles.artistName}>{item.artist}</Text>
+              <Text style={[styles.artistName, { color: theme.artistName }]}>{item.artist}</Text>
             </View>
-            <View style={styles.yearChip}>
-              <Text style={styles.yearChipText}>{item.year}</Text>
+            <View style={[styles.yearChip, { backgroundColor: theme.yearChipBackground }]}>
+              <Text style={[styles.yearChipText, { color: theme.yearChipText }]}>{item.year}</Text>
             </View>
           </View>
 
-          <View style={styles.previewDivider} />
+          <View style={[styles.previewDivider, { backgroundColor: theme.divider }]} />
 
-          <Text style={styles.previewMeta}>{item.medium}</Text>
+          <Text style={[styles.previewMeta, { color: theme.medium }]}>{item.medium}</Text>
 
 {/* 
           <View style={styles.summaryCard}>
@@ -271,9 +411,18 @@ function DailyArtPage({ item, index, scrollX, topInset }) {
           </View> */}
 
           <View style={styles.sectionBlock}>
-            <Text style={styles.sectionLabel}>Why today&apos;s pick matters</Text>
+            <Text style={[styles.sectionLabel, { color: theme.sectionLabel }]}>
+              Why today&apos;s pick matters
+            </Text>
             {essayParagraphs.map((paragraph, paragraphIndex) => (
-              <Text key={`${item.id}-${paragraphIndex}`} style={styles.essayBody}>
+              <Text
+                key={`${item.id}-${paragraphIndex}`}
+                style={[
+                  styles.essayBody,
+                  { color: theme.essayBody },
+                  paragraphIndex === essayParagraphs.length - 1 && styles.essayBodyLast,
+                ]}
+              >
                 {paragraph}
               </Text>
             ))}
@@ -299,6 +448,42 @@ function DailyArtPage({ item, index, scrollX, topInset }) {
   );
 }
 
+function ArtworkHeroImage({ imageUri }) {
+  const [aspectRatio, setAspectRatio] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    Image.getSize(
+      imageUri,
+      (imageWidth, imageHeight) => {
+        if (isMounted && imageWidth > 0 && imageHeight > 0) {
+          setAspectRatio(imageWidth / imageHeight);
+        }
+      },
+      () => {
+        if (isMounted) {
+          setAspectRatio(null);
+        }
+      }
+    );
+
+    return () => {
+      isMounted = false;
+    };
+  }, [imageUri]);
+
+  return (
+    <View style={[styles.heroImageWrap, aspectRatio ? { aspectRatio } : styles.heroImageFallback]}>
+      <Image
+        source={{ uri: imageUri }}
+        resizeMode="contain"
+        style={styles.heroImage}
+      />
+    </View>
+  );
+}
+
 function InfoPill({ label, value }) {
   return (
     <View style={styles.infoPill}>
@@ -309,20 +494,76 @@ function InfoPill({ label, value }) {
 }
 
 
-function RoundIcon({ name }) {
+function RoundIcon({ name, theme }) {
   return (
-    <Pressable style={styles.roundIcon}>
-      <Ionicons name={name} size={18} color="#f7f3ec" />
+    <Pressable style={[styles.roundIcon, { backgroundColor: theme.roundIconBackground }]}>
+      <Ionicons name={name} size={18} color={theme.roundIconForeground} />
     </Pressable>
   );
 }
 
-function PlaceholderScreen({ title }) {
+function PlaceholderScreen({ title, theme }) {
   return (
-    <View style={styles.placeholderScreen}>
-      <Ionicons name={TAB_ICONS[title]} size={32} color="#d4c4ab" />
-      <Text style={styles.placeholderTitle}>{title}</Text>
-      <Text style={styles.placeholderText}>Frontend stub for the {title.toLowerCase()} tab.</Text>
+    <View style={[styles.placeholderScreen, { backgroundColor: theme.screenBackground }]}>
+      <Ionicons name={TAB_ICONS[title]} size={32} color={theme.placeholderIcon} />
+      <Text style={[styles.placeholderTitle, { color: theme.placeholderTitle }]}>{title}</Text>
+      <Text style={[styles.placeholderText, { color: theme.placeholderText }]}>
+        Frontend stub for the {title.toLowerCase()} tab.
+      </Text>
+    </View>
+  );
+}
+
+function SettingsScreen({ theme, isLightTheme, onToggleTheme }) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.settingsScreen, { backgroundColor: theme.screenBackground }]}>
+      <LinearGradient colors={theme.gradient} locations={[0, 0.42, 1]} style={styles.backgroundGlow} />
+      <View style={[styles.backgroundOrbOne, { backgroundColor: theme.orbOne }]} />
+      <View style={[styles.backgroundOrbTwo, { backgroundColor: theme.orbTwo }]} />
+
+      <View style={[styles.settingsContainer, { paddingTop: insets.top + 20 }]}>
+        <Text style={[styles.settingsEyebrow, { color: theme.sectionLabel }]}>Appearance</Text>
+        <Text style={[styles.settingsTitle, { color: theme.title }]}>Settings</Text>
+
+        <View
+          style={[
+            styles.settingsCard,
+            {
+              backgroundColor: theme.settingsCard,
+              borderColor: theme.settingsCardBorder,
+            },
+          ]}
+        >
+          <View style={styles.settingsRow}>
+            <View style={styles.settingsTextWrap}>
+              <Text style={[styles.settingsLabel, { color: theme.settingsLabel }]}>Light theme</Text>
+              <Text style={[styles.settingsDescription, { color: theme.settingsDescription }]}>
+                Switch the app between the warm dark look and a brighter reading mode.
+              </Text>
+            </View>
+            <Switch
+              value={isLightTheme}
+              onValueChange={onToggleTheme}
+              trackColor={{
+                false: theme.switchTrackFalse,
+                true: theme.switchTrackTrue,
+              }}
+              thumbColor={theme.switchThumb}
+            />
+          </View>
+
+          <View style={[styles.settingsDivider, { backgroundColor: theme.divider }]} />
+
+          <View style={styles.settingsMetaRow}>
+            <Text style={[styles.settingsDescription, { color: theme.settingsDescription }]}>Current mode</Text>
+            <Text style={[styles.settingsValue, { color: theme.settingsValue }]}>
+              {isLightTheme ? 'Light' : 'Dark'}
+            </Text>
+          </View>
+        </View>
+      </View>
     </View>
   );
 }
@@ -399,7 +640,7 @@ const styles = StyleSheet.create({
   },
   dailyPageScrollContent: {
     paddingHorizontal: 18,
-    paddingBottom: 140,
+    paddingBottom: 92,
   },
   dailyPageTopRow: {
     flexDirection: 'row',
@@ -447,7 +688,6 @@ const styles = StyleSheet.create({
   },
   heroFrame: {
     width: '100%',
-    height: height * 0.44,
     borderRadius: 36,
     overflow: 'hidden',
     backgroundColor: '#171920',
@@ -458,6 +698,12 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 12 },
     elevation: 16,
+  },
+  heroImageWrap: {
+    width: '100%',
+  },
+  heroImageFallback: {
+    minHeight: height * 0.44,
   },
   heroImage: {
     width: '100%',
@@ -633,7 +879,10 @@ const styles = StyleSheet.create({
     color: '#b0b4bd',
     fontSize: 16,
     lineHeight: 30,
-    marginBottom: 18,
+    marginBottom: 12,
+  },
+  essayBodyLast: {
+    marginBottom: 0,
   },
   footerCard: {
     marginTop: 10,
@@ -729,5 +978,63 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 10,
     textAlign: 'center',
+  },
+  settingsScreen: {
+    flex: 1,
+  },
+  settingsContainer: {
+    flex: 1,
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  settingsEyebrow: {
+    fontSize: 12,
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  settingsTitle: {
+    fontSize: 34,
+    fontWeight: '700',
+    marginBottom: 24,
+  },
+  settingsCard: {
+    borderRadius: 28,
+    padding: 20,
+    borderWidth: 1,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  settingsTextWrap: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  settingsLabel: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  settingsDescription: {
+    fontSize: 15,
+    lineHeight: 23,
+  },
+  settingsDivider: {
+    height: 1,
+    marginVertical: 18,
+  },
+  settingsMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  settingsValue: {
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

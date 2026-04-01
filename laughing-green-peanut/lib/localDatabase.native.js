@@ -70,6 +70,6 @@ export async function getLocalArtworks() {
   return db.getAllAsync(`
     SELECT id, dateLabel, title, medium, artist, year, image, essay
     FROM artworks
-    ORDER BY dateLabel ASC
+    ORDER BY dateLabel DESC
   `);
 }

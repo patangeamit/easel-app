@@ -8,7 +8,7 @@ export const DATA_SOURCE = process.env.EXPO_PUBLIC_DATA_SOURCE === 'supabase' ? 
 export async function loadArtworks() {
   if (DATA_SOURCE === 'local') {
     const localRows = await getLocalArtworks();
-    return localRows.map(normalizeArtwork);
+    return sortArtworksByDateDesc(localRows.map(normalizeArtwork));
   }
 
   if (!isSupabaseConfigured || !supabase) {
@@ -22,10 +22,10 @@ export async function loadArtworks() {
   }
 
   if (!Array.isArray(data) || data.length === 0) {
-    return ARTWORKS_SEED.map(normalizeArtwork);
+    return sortArtworksByDateDesc(ARTWORKS_SEED.map(normalizeArtwork));
   }
 
-  return data.map(normalizeArtwork);
+  return sortArtworksByDateDesc(data.map(normalizeArtwork));
 }
 
 export function normalizeArtwork(item) {
@@ -64,4 +64,13 @@ function coerceStoragePath(value) {
   }
 
   return value.replace(/^\/+/, '');
+}
+
+function sortArtworksByDateDesc(artworks) {
+  return [...artworks].sort((left, right) => parseDateLabel(right.dateLabel) - parseDateLabel(left.dateLabel));
+}
+
+function parseDateLabel(dateLabel) {
+  const parsed = Date.parse(dateLabel);
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
