@@ -47,6 +47,7 @@ export function normalizeArtwork(item) {
     year: String(item.year ?? ''),
     image: resolvedImageUrl ?? FALLBACK_IMAGE_URL,
     essay: item.essay ?? item.description ?? 'No description available yet.',
+    day: item.day ?? 0,
   };
 }
 

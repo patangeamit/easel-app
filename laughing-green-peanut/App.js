@@ -17,13 +17,21 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  GestureHandlerRootView,
+  PanGestureHandler,
+  PinchGestureHandler,
+  State,
+} from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ARTWORKS_SEED } from './data/artworksSeed';
 import { FALLBACK_IMAGE_URL, loadArtworks } from './lib/artworkData';
 
 const { width, height } = Dimensions.get('window');
 const Tab = createBottomTabNavigator();
+const Stack = createStackNavigator();
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
 const TAB_ICONS = {
@@ -131,62 +139,105 @@ export default function App() {
   const theme = isLightTheme ? THEMES.light : THEMES.dark;
 
   return (
-    <SafeAreaProvider>
-      <NavigationContainer>
-        <StatusBar barStyle={theme.statusBarStyle} translucent backgroundColor="transparent" />
-        <Tab.Navigator
-          screenOptions={({ route }) => ({
-            headerShown: false,
-            tabBarShowLabel: true,
-            tabBarActiveTintColor: theme.tabBarActive,
-            tabBarInactiveTintColor: theme.tabBarInactive,
-            tabBarStyle: [styles.tabBar, { backgroundColor: theme.tabBarBackground }],
-            tabBarLabelStyle: styles.tabLabel,
-            tabBarIcon: ({ color, size, focused }) => (
-              <Ionicons
-                name={focused ? TAB_ICONS[route.name].replace('-outline', '') : TAB_ICONS[route.name]}
-                color={color}
-                size={size}
-              />
-            ),
-          })}
-        >
-          <Tab.Screen
-            name="DailyArt"
-            listeners={{
-              tabPress: () => {
-                setDailyArtResetSignal((currentSignal) => currentSignal + 1);
-              },
-            }}
-          >
-            {() => <DailyArtScreen theme={theme} resetToLatestSignal={dailyArtResetSignal} />}
-          </Tab.Screen>
-          <Tab.Screen name="Discover">
-            {() => <PlaceholderScreen title="Discover" theme={theme} />}
-          </Tab.Screen>
-          <Tab.Screen name="Search">
-            {() => <PlaceholderScreen title="Search" theme={theme} />}
-          </Tab.Screen>
-          <Tab.Screen name="Favourites">
-            {() => <PlaceholderScreen title="Favourites" theme={theme} />}
-          </Tab.Screen>
-          <Tab.Screen name="Settings">
-            {() => (
-              <SettingsScreen
-                theme={theme}
-                isLightTheme={isLightTheme}
-                onToggleTheme={setIsLightTheme}
-              />
-            )}
-          </Tab.Screen>
-        </Tab.Navigator>
-      </NavigationContainer>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.appRoot}>
+      <SafeAreaProvider>
+        <NavigationContainer>
+          <StatusBar barStyle={theme.statusBarStyle} translucent backgroundColor="transparent" />
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="Tabs">
+              {({ navigation }) => (
+                <MainTabs
+                  theme={theme}
+                  dailyArtResetSignal={dailyArtResetSignal}
+                  onResetDailyArt={() => setDailyArtResetSignal((currentSignal) => currentSignal + 1)}
+                  onToggleTheme={setIsLightTheme}
+                  isLightTheme={isLightTheme}
+                  rootNavigation={navigation}
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="ArtworkViewer">
+              {({ navigation, route }) => (
+                <ArtworkViewerScreen
+                  navigation={navigation}
+                  route={route}
+                  theme={theme}
+                />
+              )}
+            </Stack.Screen>
+          </Stack.Navigator>
+        </NavigationContainer>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
-function DailyArtScreen({ theme, resetToLatestSignal }) {
-  const [artworks, setArtworks] = useState(ARTWORKS_SEED);
+function MainTabs({
+  theme,
+  dailyArtResetSignal,
+  onResetDailyArt,
+  onToggleTheme,
+  isLightTheme,
+  rootNavigation,
+}) {
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarShowLabel: true,
+        tabBarActiveTintColor: theme.tabBarActive,
+        tabBarInactiveTintColor: theme.tabBarInactive,
+        tabBarStyle: [styles.tabBar, { backgroundColor: theme.tabBarBackground }],
+        tabBarLabelStyle: styles.tabLabel,
+        tabBarIcon: ({ color, size, focused }) => (
+          <Ionicons
+            name={focused ? TAB_ICONS[route.name].replace('-outline', '') : TAB_ICONS[route.name]}
+            color={color}
+            size={size}
+          />
+        ),
+      })}
+    >
+      <Tab.Screen
+        name="DailyArt"
+        listeners={{
+          tabPress: () => {
+            onResetDailyArt();
+          },
+        }}
+      >
+        {() => (
+          <DailyArtScreen
+            theme={theme}
+            resetToLatestSignal={dailyArtResetSignal}
+            onOpenArtwork={(artwork) => rootNavigation.navigate('ArtworkViewer', artwork)}
+          />
+        )}
+      </Tab.Screen>
+      {/* <Tab.Screen name="Discover">
+        {() => <PlaceholderScreen title="Discover" theme={theme} />}
+      </Tab.Screen> */}
+      {/* <Tab.Screen name="Search">
+        {() => <PlaceholderScreen title="Search" theme={theme} />}
+      </Tab.Screen> */}
+      <Tab.Screen name="Favourites">
+        {() => <PlaceholderScreen title="Favourites" theme={theme} />}
+      </Tab.Screen>
+      <Tab.Screen name="Settings">
+        {() => (
+          <SettingsScreen
+            theme={theme}
+            isLightTheme={isLightTheme}
+            onToggleTheme={onToggleTheme}
+          />
+        )}
+      </Tab.Screen>
+    </Tab.Navigator>
+  );
+}
+
+function DailyArtScreen({ theme, resetToLatestSignal, onOpenArtwork }) {
+  const [artworks, setArtworks] = useState(() => sortArtworksByDateAsc(ARTWORKS_SEED));
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const insets = useSafeAreaInsets();
@@ -206,9 +257,9 @@ function DailyArtScreen({ theme, resetToLatestSignal }) {
     async function fetchArtworks() {
       try {
         const loadedArtworks = await loadArtworks();
-
+        console.log('Loaded artworks:', loadedArtworks);
         if (isMounted && Array.isArray(loadedArtworks) && loadedArtworks.length > 0) {
-          setArtworks(loadedArtworks);
+          setArtworks(sortArtworksByDateAsc(loadedArtworks));
           setErrorMessage('');
         }
       } catch (fetchError) {
@@ -234,9 +285,14 @@ function DailyArtScreen({ theme, resetToLatestSignal }) {
       return;
     }
 
-    flatListRef.current.scrollToOffset({ offset: 0, animated: true });
-    setActiveIndex(0);
-  }, [artworks.length, resetToLatestSignal]);
+    const latestIndex = artworks.length - 1;
+
+    flatListRef.current.scrollToIndex({
+      index: latestIndex,
+      animated: resetToLatestSignal > 0,
+    });
+    setActiveIndex(latestIndex);
+  }, [artworks, resetToLatestSignal]);
 
   if (loading) {
     return (
@@ -290,6 +346,7 @@ function DailyArtScreen({ theme, resetToLatestSignal }) {
             scrollX={scrollX}
             topInset={insets.top}
             theme={theme}
+            onOpenArtwork={onOpenArtwork}
           />
         )}
       />
@@ -309,7 +366,7 @@ function DailyArtScreen({ theme, resetToLatestSignal }) {
   );
 }
 
-function DailyArtPage({ item, index, scrollX, topInset, theme }) {
+function DailyArtPage({ item, index, scrollX, topInset, theme, onOpenArtwork }) {
   const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
   const imageTranslateX = scrollX.interpolate({
     inputRange,
@@ -357,12 +414,15 @@ function DailyArtPage({ item, index, scrollX, topInset, theme }) {
             },
           ]}
         >
-          <ArtworkHeroImage imageUri={item.image || FALLBACK_IMAGE_URL} />
-          <LinearGradient
-            colors={['rgba(244,228,204,0.08)', 'rgba(11,12,17,0.15)', 'rgba(11,12,17,0.58)']}
-            locations={[0, 0.45, 1]}
-            style={styles.heroGloss}
-          />
+          <Pressable onPress={() => onOpenArtwork(item)} style={styles.heroTapTarget}>
+            <ArtworkHeroImage imageUri={item.image || FALLBACK_IMAGE_URL} />
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(244,228,204,0.08)', 'rgba(11,12,17,0.15)', 'rgba(11,12,17,0.58)']}
+              locations={[0, 0.45, 1]}
+              style={styles.heroGloss}
+            />
+          </Pressable>
           {/* <View style={styles.heroBadge}>
             <Text style={styles.heroBadgeText}>{item.dateLabel}</Text>
           </View> */}
@@ -412,7 +472,7 @@ function DailyArtPage({ item, index, scrollX, topInset, theme }) {
 
           <View style={styles.sectionBlock}>
             <Text style={[styles.sectionLabel, { color: theme.sectionLabel }]}>
-              Why today&apos;s pick matters
+              Why today's pick matters
             </Text>
             {essayParagraphs.map((paragraph, paragraphIndex) => (
               <Text
@@ -480,6 +540,128 @@ function ArtworkHeroImage({ imageUri }) {
         resizeMode="contain"
         style={styles.heroImage}
       />
+    </View>
+  );
+}
+
+function ArtworkViewerScreen({ navigation, route, theme }) {
+  const insets = useSafeAreaInsets();
+  const imageUri = route.params?.image || FALLBACK_IMAGE_URL;
+  const title = route.params?.title ?? 'Artwork';
+  const pinchRef = useRef(null);
+  const panRef = useRef(null);
+  const baseScale = useRef(new Animated.Value(1)).current;
+  const pinchScale = useRef(new Animated.Value(1)).current;
+  const baseTranslateX = useRef(new Animated.Value(0)).current;
+  const baseTranslateY = useRef(new Animated.Value(0)).current;
+  const panTranslateX = useRef(new Animated.Value(0)).current;
+  const panTranslateY = useRef(new Animated.Value(0)).current;
+  const lastScale = useRef(1);
+  const lastOffset = useRef({ x: 0, y: 0 });
+  const scale = Animated.multiply(baseScale, pinchScale);
+  const translateX = Animated.add(baseTranslateX, panTranslateX);
+  const translateY = Animated.add(baseTranslateY, panTranslateY);
+  const onPinchGestureEvent = Animated.event(
+    [{ nativeEvent: { scale: pinchScale } }],
+    { useNativeDriver: true }
+  );
+  const onPanGestureEvent = Animated.event(
+    [{ nativeEvent: { translationX: panTranslateX, translationY: panTranslateY } }],
+    { useNativeDriver: true }
+  );
+
+  const onPinchStateChange = (event) => {
+    if (event.nativeEvent.oldState !== State.ACTIVE) {
+      return;
+    }
+
+    const nextScale = Math.min(Math.max(lastScale.current * event.nativeEvent.scale, 1), 4);
+    lastScale.current = nextScale;
+    baseScale.setValue(nextScale);
+    pinchScale.setValue(1);
+
+    if (nextScale === 1) {
+      lastOffset.current = { x: 0, y: 0 };
+      baseTranslateX.setValue(0);
+      baseTranslateY.setValue(0);
+      panTranslateX.setValue(0);
+      panTranslateY.setValue(0);
+    }
+  };
+
+  const onPanStateChange = (event) => {
+    if (event.nativeEvent.oldState !== State.ACTIVE) {
+      return;
+    }
+
+    if (lastScale.current <= 1) {
+      lastOffset.current = { x: 0, y: 0 };
+      baseTranslateX.setValue(0);
+      baseTranslateY.setValue(0);
+      panTranslateX.setValue(0);
+      panTranslateY.setValue(0);
+      return;
+    }
+
+    const nextX = lastOffset.current.x + event.nativeEvent.translationX;
+    const nextY = lastOffset.current.y + event.nativeEvent.translationY;
+    lastOffset.current = { x: nextX, y: nextY };
+    baseTranslateX.setValue(nextX);
+    baseTranslateY.setValue(nextY);
+    panTranslateX.setValue(0);
+    panTranslateY.setValue(0);
+  };
+
+  return (
+    <View style={[styles.viewerScreen, { backgroundColor: theme.screenBackground }]}>
+      <StatusBar barStyle={theme.statusBarStyle} translucent backgroundColor="transparent" />
+
+      <Pressable
+        onPress={() => navigation.goBack()}
+        style={[
+          styles.viewerBackButton,
+          {
+            top: insets.top + 14,
+            backgroundColor: theme.roundIconBackground,
+          },
+        ]}
+      >
+        <Ionicons name="arrow-back" size={20} color={theme.roundIconForeground} />
+        <Text style={[styles.viewerBackLabel, { color: theme.roundIconForeground }]}>Back</Text>
+      </Pressable>
+
+      <View style={styles.viewerImageStage}>
+        <PanGestureHandler
+          ref={panRef}
+          simultaneousHandlers={pinchRef}
+          onGestureEvent={onPanGestureEvent}
+          onHandlerStateChange={onPanStateChange}
+        >
+          <Animated.View style={styles.viewerGestureLayer}>
+            <PinchGestureHandler
+              ref={pinchRef}
+              simultaneousHandlers={panRef}
+              onGestureEvent={onPinchGestureEvent}
+              onHandlerStateChange={onPinchStateChange}
+            >
+              <Animated.View
+                style={[
+                  styles.viewerImageWrap,
+                  { transform: [{ translateX }, { translateY }, { scale }] },
+                ]}
+              >
+                <Image source={{ uri: imageUri }} resizeMode="contain" style={styles.viewerImage} />
+              </Animated.View>
+            </PinchGestureHandler>
+          </Animated.View>
+        </PanGestureHandler>
+      </View>
+
+      <View style={[styles.viewerCaption, { bottom: insets.bottom + 18 }]}>
+        <Text style={[styles.viewerCaptionText, { color: theme.medium }]} numberOfLines={1}>
+          {title}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -582,7 +764,19 @@ function getEssayPreview(essay) {
   return `${firstParagraphs.slice(0, 320).trim()}...`;
 }
 
+function sortArtworksByDateAsc(items) {
+  return [...items].sort((left, right) => parseArtworkDate(left.dateLabel) - parseArtworkDate(right.dateLabel));
+}
+
+function parseArtworkDate(dateLabel) {
+  const parsed = Date.parse(dateLabel);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 const styles = StyleSheet.create({
+  appRoot: {
+    flex: 1,
+  },
   screen: {
     flex: 1,
     backgroundColor: '#07080b',
@@ -702,6 +896,9 @@ const styles = StyleSheet.create({
   heroImageWrap: {
     width: '100%',
   },
+  heroTapTarget: {
+    width: '100%',
+  },
   heroImageFallback: {
     minHeight: height * 0.44,
   },
@@ -728,6 +925,57 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1.4,
+  },
+  viewerScreen: {
+    flex: 1,
+    backgroundColor: '#07080b',
+  },
+  viewerBackButton: {
+    position: 'absolute',
+    left: 18,
+    zIndex: 5,
+    height: 42,
+    borderRadius: 21,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  viewerBackLabel: {
+    color: '#f7f3ec',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  viewerImageStage: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 24,
+  },
+  viewerGestureLayer: {
+    width: '100%',
+    height: '100%',
+  },
+  viewerImageWrap: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerImage: {
+    width: '100%',
+    height: '100%',
+  },
+  viewerCaption: {
+    position: 'absolute',
+    left: 18,
+    right: 18,
+    alignItems: 'center',
+  },
+  viewerCaptionText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   previewPanel: {
     marginTop: -28,
@@ -880,6 +1128,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 30,
     marginBottom: 12,
+    textAlign: 'justify'
   },
   essayBodyLast: {
     marginBottom: 0,
@@ -951,7 +1200,8 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 10,
     borderTopWidth: 0,
-    borderRadius: 24,
+    borderTopLeftRadius:24,
+    borderTopRightRadius:24,
     backgroundColor: 'rgba(8, 9, 13, 0.96)',
     elevation: 0,
   },
