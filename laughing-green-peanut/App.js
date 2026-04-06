@@ -27,7 +27,7 @@ import {
 } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ARTWORKS_SEED } from './data/artworksSeed';
-import { FALLBACK_IMAGE_URL, loadArtworks } from './lib/artworkData';
+import { FALLBACK_IMAGE_URL, loadArtworksForCurrentDay } from './lib/artworkData';
 
 const { width, height } = Dimensions.get('window');
 const Tab = createBottomTabNavigator();
@@ -237,9 +237,10 @@ function MainTabs({
 }
 
 function DailyArtScreen({ theme, resetToLatestSignal, onOpenArtwork }) {
-  const [artworks, setArtworks] = useState(() => sortArtworksByDateAsc(ARTWORKS_SEED));
+  const [artworks, setArtworks] = useState(() => sortArtworksByDayAsc(ARTWORKS_SEED));
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [currentDay, setCurrentDay] = useState(1);
   const insets = useSafeAreaInsets();
   const scrollX = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef(null);
@@ -256,11 +257,16 @@ function DailyArtScreen({ theme, resetToLatestSignal, onOpenArtwork }) {
 
     async function fetchArtworks() {
       try {
-        const loadedArtworks = await loadArtworks();
+        const { artworks: loadedArtworks, currentDay: resolvedDay } = await loadArtworksForCurrentDay();
         console.log('Loaded artworks:', loadedArtworks);
         if (isMounted && Array.isArray(loadedArtworks) && loadedArtworks.length > 0) {
-          setArtworks(sortArtworksByDateAsc(loadedArtworks));
+          setArtworks(sortArtworksByDayAsc(loadedArtworks));
+          setCurrentDay(resolvedDay);
           setErrorMessage('');
+        } else if (isMounted) {
+          setArtworks([]);
+          setCurrentDay(resolvedDay);
+          setErrorMessage(`No artwork is available yet for day ${resolvedDay}.`);
         }
       } catch (fetchError) {
         if (isMounted) {
@@ -299,6 +305,17 @@ function DailyArtScreen({ theme, resetToLatestSignal, onOpenArtwork }) {
       <View style={[styles.screen, styles.centeredState, { backgroundColor: theme.screenBackground }]}>
         <ActivityIndicator size="large" color={theme.loadingIndicator} />
         <Text style={[styles.stateText, { color: theme.stateText }]}>Loading today&apos;s art...</Text>
+      </View>
+    );
+  }
+
+  if (artworks.length === 0) {
+    return (
+      <View style={[styles.screen, styles.centeredState, { backgroundColor: theme.screenBackground }]}>
+        <LinearGradient colors={theme.gradient} locations={[0, 0.42, 1]} style={styles.backgroundGlow} />
+        <Text style={[styles.stateText, { color: theme.stateText }]}>
+          {errorMessage || `No artwork is available yet for day ${currentDay}.`}
+        </Text>
       </View>
     );
   }
@@ -346,6 +363,7 @@ function DailyArtScreen({ theme, resetToLatestSignal, onOpenArtwork }) {
             scrollX={scrollX}
             topInset={insets.top}
             theme={theme}
+            currentDay={currentDay}
             onOpenArtwork={onOpenArtwork}
           />
         )}
@@ -366,7 +384,7 @@ function DailyArtScreen({ theme, resetToLatestSignal, onOpenArtwork }) {
   );
 }
 
-function DailyArtPage({ item, index, scrollX, topInset, theme, onOpenArtwork }) {
+function DailyArtPage({ item, index, scrollX, topInset, theme, currentDay, onOpenArtwork }) {
   const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
   const imageTranslateX = scrollX.interpolate({
     inputRange,
@@ -396,7 +414,7 @@ function DailyArtPage({ item, index, scrollX, topInset, theme, onOpenArtwork }) 
         <View style={styles.dailyPageTopRow}>
           <View>
             <Text style={[styles.mastheadEyebrow, { color: theme.mastheadEyebrow }]}>Daily art</Text>
-            <Text style={[styles.mastheadTitle, { color: theme.title }]}>{item.dateLabel}</Text>
+            <Text style={[styles.mastheadTitle, { color: theme.title }]}>{formatArtworkDayLabel(item.day)}</Text>
           </View>
           <View style={styles.iconRow}>
             <RoundIcon name="heart-outline" theme={theme} />
@@ -472,7 +490,7 @@ function DailyArtPage({ item, index, scrollX, topInset, theme, onOpenArtwork }) 
 
           <View style={styles.sectionBlock}>
             <Text style={[styles.sectionLabel, { color: theme.sectionLabel }]}>
-              Why today's pick matters
+              {Number(item.day) === currentDay ? "Why today's pick matters" : `Why day ${item.day} mattered`}
             </Text>
             {essayParagraphs.map((paragraph, paragraphIndex) => (
               <Text
@@ -764,13 +782,20 @@ function getEssayPreview(essay) {
   return `${firstParagraphs.slice(0, 320).trim()}...`;
 }
 
-function sortArtworksByDateAsc(items) {
-  return [...items].sort((left, right) => parseArtworkDate(left.dateLabel) - parseArtworkDate(right.dateLabel));
+function sortArtworksByDayAsc(items) {
+  return [...items].sort((left, right) => {
+    const dayDelta = Number(left.day ?? 0) - Number(right.day ?? 0);
+
+    if (dayDelta !== 0) {
+      return dayDelta;
+    }
+
+    return String(left.id).localeCompare(String(right.id));
+  });
 }
 
-function parseArtworkDate(dateLabel) {
-  const parsed = Date.parse(dateLabel);
-  return Number.isNaN(parsed) ? 0 : parsed;
+function formatArtworkDayLabel(day) {
+  return `Day ${Number(day ?? 0)}`;
 }
 
 const styles = StyleSheet.create({
