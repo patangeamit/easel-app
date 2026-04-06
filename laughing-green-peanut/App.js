@@ -26,8 +26,8 @@ import {
   State,
 } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ARTWORKS_SEED } from './data/artworksSeed';
-import { FALLBACK_IMAGE_URL, loadArtworksForCurrentDay } from './lib/artworkData';
+import { FALLBACK_IMAGE_URL, loadArtworkCatalog, loadArtworksForCurrentDay } from './lib/artworkData';
+import { getArtworkReactions, setArtworkReaction } from './lib/localDatabase';
 
 const { width, height } = Dimensions.get('window');
 const Tab = createBottomTabNavigator();
@@ -39,7 +39,44 @@ const TAB_ICONS = {
   Discover: 'grid-outline',
   Search: 'search-outline',
   Favourites: 'heart-outline',
+  Profile: 'person-outline',
   Settings: 'settings-outline',
+};
+
+const PROFILE = {
+  name: 'Ava Laurent',
+  role: 'Product Designer',
+  location: 'Brooklyn, New York',
+  bio: 'Designing tactile digital products with a soft spot for editorial layouts, thoughtful motion, and brands that feel human.',
+  avatar:
+    'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=80',
+  stats: [
+    { label: 'Projects', value: '48' },
+    { label: 'Followers', value: '12.8K' },
+    { label: 'Rating', value: '4.9' },
+  ],
+  skills: ['Brand Systems', 'Mobile UX', 'Creative Direction', 'Prototyping'],
+  highlights: [
+    {
+      title: 'Lead Product Designer',
+      subtitle: 'Northstar Studio',
+      period: '2023 - Present',
+      detail: 'Building premium commerce experiences with a focus on visual clarity and conversion.',
+      icon: 'sparkles-outline',
+    },
+    {
+      title: 'Independent Consultant',
+      subtitle: 'Selected Clients',
+      period: '2020 - 2023',
+      detail: 'Shaped launches for wellness, fashion, and creator-led startups across web and mobile.',
+      icon: 'color-wand-outline',
+    },
+  ],
+  links: [
+    { label: 'Portfolio', icon: 'globe-outline' },
+    { label: 'Instagram', icon: 'logo-instagram' },
+    { label: 'LinkedIn', icon: 'logo-linkedin' },
+  ],
 };
 
 const THEMES = {
@@ -136,7 +173,87 @@ const THEMES = {
 export default function App() {
   const [isLightTheme, setIsLightTheme] = useState(false);
   const [dailyArtResetSignal, setDailyArtResetSignal] = useState(0);
+  const [artworkCatalog, setArtworkCatalog] = useState([]);
+  const [artworkReactions, setArtworkReactionsState] = useState({});
   const theme = isLightTheme ? THEMES.light : THEMES.dark;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchArtworkCatalog() {
+      try {
+        const loadedCatalog = await loadArtworkCatalog();
+
+        if (isMounted && Array.isArray(loadedCatalog)) {
+          setArtworkCatalog(loadedCatalog);
+        }
+      } catch (error) {
+        console.warn('Failed to load artwork catalog from the configured data source.', error);
+      }
+    }
+
+    fetchArtworkCatalog();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadReactions() {
+      try {
+        const storedReactions = await getArtworkReactions();
+
+        if (isMounted) {
+          setArtworkReactionsState(storedReactions);
+        }
+      } catch (error) {
+        console.warn('Failed to load local artwork reactions.', error);
+      }
+    }
+
+    loadReactions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleToggleReaction = async (artworkId, requestedReaction) => {
+    const previousReaction = artworkReactions[artworkId] ?? null;
+    const nextReaction = previousReaction === requestedReaction ? null : requestedReaction;
+
+    setArtworkReactionsState((currentReactions) => {
+      const updatedReactions = { ...currentReactions };
+
+      if (nextReaction) {
+        updatedReactions[artworkId] = nextReaction;
+      } else {
+        delete updatedReactions[artworkId];
+      }
+
+      return updatedReactions;
+    });
+
+    try {
+      await setArtworkReaction(artworkId, nextReaction);
+    } catch (error) {
+      console.warn('Failed to save local artwork reaction.', error);
+      setArtworkReactionsState((currentReactions) => {
+        const rolledBackReactions = { ...currentReactions };
+
+        if (previousReaction) {
+          rolledBackReactions[artworkId] = previousReaction;
+        } else {
+          delete rolledBackReactions[artworkId];
+        }
+
+        return rolledBackReactions;
+      });
+    }
+  };
 
   return (
     <GestureHandlerRootView style={styles.appRoot}>
@@ -152,7 +269,21 @@ export default function App() {
                   onResetDailyArt={() => setDailyArtResetSignal((currentSignal) => currentSignal + 1)}
                   onToggleTheme={setIsLightTheme}
                   isLightTheme={isLightTheme}
+                  artworkCatalog={artworkCatalog}
+                  artworkReactions={artworkReactions}
+                  onToggleReaction={handleToggleReaction}
                   rootNavigation={navigation}
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="ArtworkDetail">
+              {({ navigation, route }) => (
+                <ArtworkDetailScreen
+                  navigation={navigation}
+                  route={route}
+                  theme={theme}
+                  artworkReactions={artworkReactions}
+                  onToggleReaction={handleToggleReaction}
                 />
               )}
             </Stack.Screen>
@@ -162,6 +293,17 @@ export default function App() {
                   navigation={navigation}
                   route={route}
                   theme={theme}
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="FavouriteDailyArt">
+              {({ navigation, route }) => (
+                <FavouriteDailyArtScreen
+                  navigation={navigation}
+                  route={route}
+                  theme={theme}
+                  artworkReactions={artworkReactions}
+                  onToggleReaction={handleToggleReaction}
                 />
               )}
             </Stack.Screen>
@@ -178,6 +320,9 @@ function MainTabs({
   onResetDailyArt,
   onToggleTheme,
   isLightTheme,
+  artworkCatalog,
+  artworkReactions,
+  onToggleReaction,
   rootNavigation,
 }) {
   return (
@@ -211,17 +356,28 @@ function MainTabs({
             theme={theme}
             resetToLatestSignal={dailyArtResetSignal}
             onOpenArtwork={(artwork) => rootNavigation.navigate('ArtworkViewer', artwork)}
+            onOpenArtworkDetail={(artwork) =>
+              rootNavigation.navigate('ArtworkDetail', { artwork })
+            }
+            reactions={artworkReactions}
+            onToggleReaction={onToggleReaction}
           />
         )}
       </Tab.Screen>
-      {/* <Tab.Screen name="Discover">
-        {() => <PlaceholderScreen title="Discover" theme={theme} />}
-      </Tab.Screen> */}
-      {/* <Tab.Screen name="Search">
-        {() => <PlaceholderScreen title="Search" theme={theme} />}
-      </Tab.Screen> */}
       <Tab.Screen name="Favourites">
-        {() => <PlaceholderScreen title="Favourites" theme={theme} />}
+        {() => (
+          <FavouritesScreen
+            theme={theme}
+            artworks={artworkCatalog}
+            reactions={artworkReactions}
+            onOpenArtworkDetail={(artwork) =>
+              rootNavigation.navigate('FavouriteDailyArt', { artwork })
+            }
+          />
+        )}
+      </Tab.Screen>
+      <Tab.Screen name="Profile">
+        {() => <ProfileScreen theme={theme} />}
       </Tab.Screen>
       <Tab.Screen name="Settings">
         {() => (
@@ -236,8 +392,15 @@ function MainTabs({
   );
 }
 
-function DailyArtScreen({ theme, resetToLatestSignal, onOpenArtwork }) {
-  const [artworks, setArtworks] = useState(() => sortArtworksByDayAsc(ARTWORKS_SEED));
+function DailyArtScreen({
+  theme,
+  resetToLatestSignal,
+  onOpenArtwork,
+  onOpenArtworkDetail,
+  reactions,
+  onToggleReaction,
+}) {
+  const [artworks, setArtworks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [currentDay, setCurrentDay] = useState(1);
@@ -365,26 +528,29 @@ function DailyArtScreen({ theme, resetToLatestSignal, onOpenArtwork }) {
             theme={theme}
             currentDay={currentDay}
             onOpenArtwork={onOpenArtwork}
+            onOpenArtworkDetail={onOpenArtworkDetail}
+            reaction={reactions[item.id] ?? null}
+            onToggleReaction={onToggleReaction}
           />
         )}
       />
-
-      {/* <View style={[styles.pageIndicatorWrap, { bottom: insets.bottom + 88 }]}>
-        <Text style={styles.pageIndicatorKicker}>Daily curation</Text>
-        <View style={styles.pageIndicatorRow}>
-          {artworks.map((artwork, index) => (
-            <View
-              key={artwork.id}
-              style={[styles.pageIndicatorDot, index === activeIndex && styles.pageIndicatorDotActive]}
-            />
-          ))}
-        </View>
-      </View> */}
     </View>
   );
 }
 
-function DailyArtPage({ item, index, scrollX, topInset, theme, currentDay, onOpenArtwork }) {
+function DailyArtPage({
+  item,
+  index,
+  scrollX,
+  topInset,
+  theme,
+  currentDay,
+  onOpenArtwork,
+  onOpenArtworkDetail,
+  reaction,
+  onToggleReaction,
+  showTitle = true,
+}) {
   const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
   const imageTranslateX = scrollX.interpolate({
     inputRange,
@@ -412,12 +578,16 @@ function DailyArtPage({ item, index, scrollX, topInset, theme, currentDay, onOpe
         contentContainerStyle={[styles.dailyPageScrollContent, { paddingTop: topInset + 18 }]}
       >
         <View style={styles.dailyPageTopRow}>
-          <View>
-            <Text style={[styles.mastheadEyebrow, { color: theme.mastheadEyebrow }]}>Daily art</Text>
-            <Text style={[styles.mastheadTitle, { color: theme.title }]}>{formatArtworkDayLabel(item.day)}</Text>
-          </View>
+            <View>
+              <Text style={[styles.mastheadEyebrow, { color: theme.mastheadEyebrow }]}>{showTitle && "Daily art"}</Text>
+              <Text style={[styles.mastheadTitle, { color: theme.title }]}>{showTitle && formatArtworkDayLabel(item.day)}</Text>
+            </View>
           <View style={styles.iconRow}>
-            <RoundIcon name="heart-outline" theme={theme} />
+              <ReactionToggle
+                value={reaction}
+                theme={theme}
+                onChange={(nextReaction) => onToggleReaction(item.id, nextReaction)}
+              />
             <RoundIcon name="share-social-outline" theme={theme} />
           </View>
         </View>
@@ -441,9 +611,6 @@ function DailyArtPage({ item, index, scrollX, topInset, theme, currentDay, onOpe
               style={styles.heroGloss}
             />
           </Pressable>
-          {/* <View style={styles.heroBadge}>
-            <Text style={styles.heroBadgeText}>{item.dateLabel}</Text>
-          </View> */}
         </Animated.View>
 
         <Animated.View
@@ -477,16 +644,6 @@ function DailyArtPage({ item, index, scrollX, topInset, theme, currentDay, onOpe
 
           <Text style={[styles.previewMeta, { color: theme.medium }]}>{item.medium}</Text>
 
-{/* 
-          <View style={styles.summaryCard}>
-            <Text style={styles.sectionLabel}>Curator note</Text>
-            <Text style={styles.previewEssay}>{getEssayPreview(item.essay)}</Text>
-          </View> */}
-
-          {/* <View style={styles.metricsRow}>
-            <InfoPill label="Artist" value={item.artist} />
-            <InfoPill label="Made in" value={item.year} />
-          </View> */}
 
           <View style={styles.sectionBlock}>
             <Text style={[styles.sectionLabel, { color: theme.sectionLabel }]}>
@@ -505,23 +662,36 @@ function DailyArtPage({ item, index, scrollX, topInset, theme, currentDay, onOpe
               </Text>
             ))}
           </View>
-
-          {/* <View style={styles.footerCard}>
-            <Text style={styles.footerCardTitle}>Swipe for the next day</Text>
-            <Text style={styles.footerCardText}>
-              Each page keeps its own scroll, so the journey feels calm, tactile, and uninterrupted.
-            </Text>
-            <View style={styles.footerActionRow}>
-              <Pressable style={styles.openEssayButton}>
-                <Text style={styles.openEssayLabel}>Saved to today&apos;s collection</Text>
-              </Pressable>
-              <View style={styles.arrowButton}>
-                <Ionicons name="arrow-forward" size={18} color="#111218" />
-              </View>
-            </View>
-          </View> */}
         </Animated.View>
       </ScrollView>
+    </View>
+  );
+}
+
+function ReactionToggle({ value, theme, onChange }) {
+  return (
+    <View style={styles.reactionToggleRow}>
+      <Pressable
+        onPress={() => onChange('like')}
+        style={[
+          styles.reactionButton,
+          value === 'like' && styles.reactionButtonLiked,
+        ]}
+      >
+        <Ionicons
+          name={value === 'like' ? 'heart' : 'heart-outline'}
+          size={16}
+          color={value === 'like' ? '#fff8ef' : theme.roundIconForeground}
+        />
+        <Text
+          style={[
+            styles.reactionButtonText,
+            { color: value === 'like' ? '#fff8ef' : theme.roundIconForeground },
+          ]}
+        >
+          Like
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -684,15 +854,183 @@ function ArtworkViewerScreen({ navigation, route, theme }) {
   );
 }
 
-function InfoPill({ label, value }) {
+function FavouriteDailyArtScreen({
+  navigation,
+  route,
+  theme,
+  artworkReactions,
+  onToggleReaction,
+}) {
+  const insets = useSafeAreaInsets();
+  const artwork = route.params?.artwork;
+  const scrollX = useRef(new Animated.Value(0)).current;
+
+  if (!artwork) {
+    return (
+      <View style={[styles.screen, styles.centeredState, { backgroundColor: theme.screenBackground }]}>
+        <Text style={[styles.stateText, { color: theme.stateText }]}>Artwork details are unavailable.</Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.infoPill}>
-      <Text style={styles.infoPillLabel}>{label}</Text>
-      <Text style={styles.infoPillValue}>{value}</Text>
+    <View style={[styles.screen, { backgroundColor: theme.screenBackground }]}>
+      <LinearGradient colors={theme.gradient} locations={[0, 0.42, 1]} style={styles.backgroundGlow} />
+      <View style={[styles.backgroundOrbOne, { backgroundColor: theme.orbOne }]} />
+      <View style={[styles.backgroundOrbTwo, { backgroundColor: theme.orbTwo }]} />
+
+      <DailyArtPage
+        item={artwork}
+        index={0}
+        scrollX={scrollX}
+        topInset={insets.top}
+        theme={theme}
+        currentDay={Number(artwork.day ?? 0)}
+        onOpenArtwork={(selectedArtwork) => navigation.navigate('ArtworkViewer', selectedArtwork)}
+        onOpenArtworkDetail={() => {}}
+        reaction={artworkReactions[artwork.id] ?? null}
+        onToggleReaction={onToggleReaction}
+        showTitle={false}
+      />
+
+      <Pressable
+        onPress={() => navigation.goBack()}
+        style={[
+          styles.favouriteDailyArtBackButton,
+          {
+            top: insets.top + 18,
+            backgroundColor: theme.roundIconBackground,
+          },
+        ]}
+      >
+        <Ionicons name="arrow-back" size={18} color={theme.roundIconForeground} />
+      </Pressable>
     </View>
   );
 }
 
+function ArtworkDetailScreen({ navigation, route, theme, artworkReactions, onToggleReaction }) {
+  const insets = useSafeAreaInsets();
+  const artwork = route.params?.artwork;
+
+  if (!artwork) {
+    return (
+      <View style={[styles.screen, styles.centeredState, { backgroundColor: theme.screenBackground }]}>
+        <Text style={[styles.stateText, { color: theme.stateText }]}>Artwork details are unavailable.</Text>
+      </View>
+    );
+  }
+
+  const essayParagraphs = artwork.essay.split('\n\n');
+  const reaction = artworkReactions[artwork.id] ?? null;
+
+  return (
+    <View style={[styles.screen, { backgroundColor: theme.screenBackground }]}>
+      <LinearGradient colors={theme.gradient} locations={[0, 0.42, 1]} style={styles.backgroundGlow} />
+      <View style={[styles.backgroundOrbOne, { backgroundColor: theme.orbOne }]} />
+      <View style={[styles.backgroundOrbTwo, { backgroundColor: theme.orbTwo }]} />
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.artworkDetailContent, { paddingTop: insets.top + 18 }]}
+      >
+        <View style={styles.dailyPageTopRow}>
+          <View>
+            <Text style={[styles.mastheadEyebrow, { color: theme.mastheadEyebrow }]}>Artwork details</Text>
+            <Text style={[styles.mastheadTitle, { color: theme.title }]}>{formatArtworkDayLabel(artwork.day)}</Text>
+          </View>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={[styles.roundIcon, { backgroundColor: theme.roundIconBackground }]}
+          >
+            <Ionicons name="arrow-back" size={18} color={theme.roundIconForeground} />
+          </Pressable>
+        </View>
+
+        <View
+          style={[
+            styles.heroFrame,
+            {
+              backgroundColor: theme.heroFrameBackground,
+              borderColor: theme.heroFrameBorder,
+            },
+          ]}
+        >
+          <Pressable onPress={() => navigation.navigate('ArtworkViewer', artwork)} style={styles.heroTapTarget}>
+            <ArtworkHeroImage imageUri={artwork.image || FALLBACK_IMAGE_URL} />
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(244,228,204,0.08)', 'rgba(11,12,17,0.15)', 'rgba(11,12,17,0.58)']}
+              locations={[0, 0.45, 1]}
+              style={styles.heroGloss}
+            />
+          </Pressable>
+        </View>
+
+        <View
+          style={[
+            styles.previewPanel,
+            styles.artworkDetailPanel,
+            {
+              backgroundColor: theme.previewBackground,
+              borderColor: theme.previewBorder,
+            },
+          ]}
+        >
+          <Text style={[styles.previewTitle, { color: theme.title }]}>{artwork.title}</Text>
+
+          <View style={styles.metadataRow}>
+            <View style={[styles.artistChip, { backgroundColor: theme.artistChipBackground }]}>
+              <View style={[styles.artistAvatar, { backgroundColor: theme.artistAvatarBackground }]}>
+                <Text style={[styles.artistAvatarText, { color: theme.artistAvatarText }]}>
+                  {getInitials(artwork.artist)}
+                </Text>
+              </View>
+              <Text style={[styles.artistName, { color: theme.artistName }]}>{artwork.artist}</Text>
+            </View>
+            <View style={[styles.yearChip, { backgroundColor: theme.yearChipBackground }]}>
+              <Text style={[styles.yearChipText, { color: theme.yearChipText }]}>{artwork.year}</Text>
+            </View>
+          </View>
+
+          <View style={[styles.previewDivider, { backgroundColor: theme.divider }]} />
+          <Text style={[styles.previewMeta, { color: theme.medium }]}>{artwork.medium}</Text>
+
+          <View style={styles.artworkActionRow}>
+            <ReactionToggle
+              value={reaction}
+              theme={theme}
+              onChange={(nextReaction) => onToggleReaction(artwork.id, nextReaction)}
+            />
+            <Pressable
+              onPress={() => navigation.navigate('ArtworkViewer', artwork)}
+              style={styles.detailButton}
+            >
+              <Text style={styles.detailButtonText}>Open image</Text>
+              <Ionicons name="expand-outline" size={16} color="#15161c" />
+            </Pressable>
+          </View>
+
+          <View style={styles.sectionBlock}>
+            <Text style={[styles.sectionLabel, { color: theme.sectionLabel }]}>Why this piece matters</Text>
+            {essayParagraphs.map((paragraph, paragraphIndex) => (
+              <Text
+                key={`${artwork.id}-${paragraphIndex}`}
+                style={[
+                  styles.essayBody,
+                  { color: theme.essayBody },
+                  paragraphIndex === essayParagraphs.length - 1 && styles.essayBodyLast,
+                ]}
+              >
+                {paragraph}
+              </Text>
+            ))}
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
 
 function RoundIcon({ name, theme }) {
   return (
@@ -710,6 +1048,222 @@ function PlaceholderScreen({ title, theme }) {
       <Text style={[styles.placeholderText, { color: theme.placeholderText }]}>
         Frontend stub for the {title.toLowerCase()} tab.
       </Text>
+    </View>
+  );
+}
+
+function FavouritesScreen({ theme, artworks, reactions, onOpenArtworkDetail }) {
+  console.log('Rendering FavouritesScreen with artworks:', artworks);
+  console.log('Rendering FavouritesScreen with reactions:', reactions);
+  const insets = useSafeAreaInsets();
+  const reactedArtworks = useMemo(
+    () =>
+      [...artworks]
+        .filter((artwork) => Boolean(reactions[artwork.id]))
+        .sort((left, right) => Number(right.day ?? 0) - Number(left.day ?? 0)),
+    [artworks, reactions]
+  );
+  console.log('Reacted artworks for FavouritesScreen:', reactedArtworks);
+  if (reactedArtworks.length === 0) {
+    return (
+      <View style={[styles.placeholderScreen, { backgroundColor: theme.screenBackground }]}>
+        <LinearGradient colors={theme.gradient} locations={[0, 0.42, 1]} style={styles.backgroundGlow} />
+        <Ionicons name="heart-dislike-outline" size={32} color={theme.placeholderIcon} />
+        <Text style={[styles.placeholderTitle, { color: theme.placeholderTitle }]}>Favourites</Text>
+        <Text style={[styles.placeholderText, { color: theme.placeholderText }]}>
+          Like or dislike a daily artwork to save it here.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.screen, { backgroundColor: theme.screenBackground }]}>
+      <LinearGradient colors={theme.gradient} locations={[0, 0.42, 1]} style={styles.backgroundGlow} />
+      <View style={[styles.backgroundOrbOne, { backgroundColor: theme.orbOne }]} />
+      <View style={[styles.backgroundOrbTwo, { backgroundColor: theme.orbTwo }]} />
+
+      <FlatList
+        data={reactedArtworks}
+        keyExtractor={(item) => item.id}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.favouritesListContent,
+          {
+            paddingTop: insets.top + 18,
+            paddingBottom: insets.bottom + 96,
+          },
+        ]}
+        ListHeaderComponent={(
+          <View style={styles.favouritesHeader}>
+            <Text style={[styles.settingsEyebrow, { color: theme.sectionLabel }]}>Saved locally</Text>
+            <Text style={[styles.settingsTitle, { color: theme.title }]}>Favourites</Text>
+          </View>
+        )}
+        renderItem={({ item }) => (
+          <Pressable
+          onPress={() => onOpenArtworkDetail(item)}
+          style={[
+            styles.favouriteCard,
+            {
+              backgroundColor: theme.previewBackground,
+              borderColor: theme.previewBorder,
+            },
+          ]}
+          >
+            <Image source={{ uri: item.image || FALLBACK_IMAGE_URL }} style={styles.favouriteImage} />
+            <View style={styles.favouriteCardBody}>
+              <View style={styles.favouriteCardTopRow}>
+                <Text style={[styles.favouriteDayLabel, { color: theme.sectionLabel }]}>
+                  {formatArtworkDayLabel(item.day)}
+                </Text>
+                <View
+                  style={[
+                    styles.reactionBadge,
+                    reactions[item.id] === 'like' ? styles.reactionBadgeLiked : styles.reactionBadgeDisliked,
+                  ]}
+                >
+                  <Ionicons
+                    name={reactions[item.id] === 'like' ? 'heart' : 'thumbs-down'}
+                    size={12}
+                    color="#fff8ef"
+                  />
+                  <Text style={styles.reactionBadgeText}>
+                    {reactions[item.id] === 'like' ? 'Liked' : 'Disliked'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.favouriteTitle, { color: theme.title }]}>{item.title}</Text>
+              <Text style={[styles.favouriteSubtitle, { color: theme.medium }]}>
+                {item.artist} · {item.year}
+              </Text>
+              <Text numberOfLines={2} style={[styles.favouriteEssayPreview, { color: theme.essayBody }]}>
+                {item.essay}
+              </Text>
+            </View>
+          </Pressable>
+        )}
+      />
+    </View>
+  );
+}
+
+function ProfileScreen({ theme }) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.profileScreen, { backgroundColor: theme.screenBackground }]}>
+      <LinearGradient colors={theme.gradient} locations={[0, 0.42, 1]} style={styles.backgroundGlow} />
+      <View style={[styles.backgroundOrbOne, { backgroundColor: theme.orbOne }]} />
+      <View style={[styles.backgroundOrbTwo, { backgroundColor: theme.orbTwo }]} />
+      <View style={styles.profileTopGlow} />
+      <View style={styles.profileBottomGlow} />
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.profileContent,
+          {
+            paddingTop: insets.top + 18,
+            paddingBottom: insets.bottom + 96,
+          },
+        ]}
+      >
+        <View style={styles.profileHeaderRow}>
+          <Text style={[styles.profileEyebrow, { color: theme.sectionLabel }]}>Creative Profile</Text>
+          <Pressable style={[styles.profileHeaderButton, { backgroundColor: theme.roundIconBackground }]}>
+            <Ionicons name="ellipsis-horizontal" size={18} color={theme.roundIconForeground} />
+          </Pressable>
+        </View>
+
+        <LinearGradient colors={['#263557', '#1c2743']} style={styles.profileHeroCard}>
+          <View style={styles.profileHeroAccent} />
+
+          <View style={styles.profileHeroTopRow}>
+            <Image source={{ uri: PROFILE.avatar }} style={styles.profileAvatar} />
+            <View style={styles.profileHeroCopy}>
+              <Text style={styles.profileName}>{PROFILE.name}</Text>
+              <Text style={styles.profileRole}>{PROFILE.role}</Text>
+              <View style={styles.profileLocationRow}>
+                <Ionicons name="location-outline" size={14} color="#c6d4f7" />
+                <Text style={styles.profileLocation}>{PROFILE.location}</Text>
+              </View>
+            </View>
+          </View>
+
+          <Text style={styles.profileBio}>{PROFILE.bio}</Text>
+
+          <View style={styles.profileActionRow}>
+            <Pressable style={styles.profilePrimaryButton}>
+              <Text style={styles.profilePrimaryButtonText}>Hire Me</Text>
+            </Pressable>
+            <Pressable style={styles.profileSecondaryButton}>
+              <Ionicons name="paper-plane-outline" size={16} color="#f3efe8" />
+              <Text style={styles.profileSecondaryButtonText}>Message</Text>
+            </Pressable>
+          </View>
+        </LinearGradient>
+
+        <View style={styles.profileStatsRow}>
+          {PROFILE.stats.map((item) => (
+            <View key={item.label} style={styles.profileStatCard}>
+              <Text style={styles.profileStatValue}>{item.value}</Text>
+              <Text style={styles.profileStatLabel}>{item.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.profileSectionHeader}>
+          <Text style={[styles.profileSectionTitle, { color: theme.title }]}>About</Text>
+          <Text style={[styles.profileSectionTag, { color: theme.medium }]}>Curated</Text>
+        </View>
+        <View style={styles.profileAboutCard}>
+          <Text style={styles.profileAboutText}>
+            I create interfaces that feel warm, premium, and easy to trust. My process blends sharp
+            systems thinking with visual storytelling so products feel both useful and memorable.
+          </Text>
+          <View style={styles.profileSkillWrap}>
+            {PROFILE.skills.map((skill) => (
+              <View key={skill} style={styles.profileSkillChip}>
+                <Text style={styles.profileSkillText}>{skill}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.profileSectionHeader}>
+          <Text style={[styles.profileSectionTitle, { color: theme.title }]}>Experience</Text>
+          <Text style={[styles.profileSectionTag, { color: theme.medium }]}>Recent</Text>
+        </View>
+        {PROFILE.highlights.map((item) => (
+          <View key={item.title} style={styles.profileTimelineCard}>
+            <View style={styles.profileTimelineIcon}>
+              <Ionicons name={item.icon} size={18} color="#f6f1e8" />
+            </View>
+            <View style={styles.profileTimelineBody}>
+              <View style={styles.profileTimelineHeader}>
+                <Text style={styles.profileTimelineTitle}>{item.title}</Text>
+                <Text style={styles.profileTimelinePeriod}>{item.period}</Text>
+              </View>
+              <Text style={styles.profileTimelineSubtitle}>{item.subtitle}</Text>
+              <Text style={styles.profileTimelineDetail}>{item.detail}</Text>
+            </View>
+          </View>
+        ))}
+
+        <View style={styles.profileSectionHeader}>
+          <Text style={[styles.profileSectionTitle, { color: theme.title }]}>Connect</Text>
+          <Text style={[styles.profileSectionTag, { color: theme.medium }]}>Online</Text>
+        </View>
+        <View style={styles.profileLinkRow}>
+          {PROFILE.links.map((item) => (
+            <Pressable key={item.label} style={styles.profileLinkCard}>
+              <Ionicons name={item.icon} size={18} color="#eef3ff" />
+              <Text style={styles.profileLinkLabel}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -775,11 +1329,6 @@ function getInitials(name) {
     .map((part) => part[0])
     .join('')
     .toUpperCase();
-}
-
-function getEssayPreview(essay) {
-  const firstParagraphs = essay.split('\n\n').slice(0, 2).join('\n\n');
-  return `${firstParagraphs.slice(0, 320).trim()}...`;
 }
 
 function sortArtworksByDayAsc(items) {
@@ -883,16 +1432,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     maxWidth: width * 0.58,
   },
-  dateBadge: {
-    color: '#fff4e8',
-    backgroundColor: 'rgba(125, 84, 53, 0.96)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 16,
-    fontSize: 13,
-    fontWeight: '700',
-    overflow: 'hidden',
-  },
   iconRow: {
     flexDirection: 'row',
     gap: 10,
@@ -933,23 +1472,6 @@ const styles = StyleSheet.create({
   },
   heroGloss: {
     ...StyleSheet.absoluteFillObject,
-  },
-  heroBadge: {
-    position: 'absolute',
-    left: 18,
-    bottom: 18,
-    backgroundColor: 'rgba(11, 12, 17, 0.72)',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderWidth: 1,
-    borderColor: 'rgba(247, 243, 236, 0.12)',
-  },
-  heroBadgeText: {
-    color: '#fff4e8',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.4,
   },
   viewerScreen: {
     flex: 1,
@@ -1090,131 +1612,90 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 10,
   },
-  previewEssay: {
-    color: '#c5c8cf',
-    fontSize: 16,
-    lineHeight: 29,
-  },
-  summaryCard: {
-    backgroundColor: '#171a21',
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-  },
-  metricsRow: {
-    marginTop: 14,
-    gap: 10,
-  },
   sectionBlock: {
     marginTop: 20,
   },
-  openEssayButton: {
-    backgroundColor: '#efe3cc',
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+  artworkActionRow: {
+    marginTop: 18,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
-  openEssayLabel: {
-    color: '#15161c',
-    fontSize: 15,
-    fontWeight: '700',
+  reactionToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexShrink: 1,
   },
-  arrowButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#c9b18a',
+  reactionButton: {
+    minHeight: 42,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
   },
-  infoPill: {
-    backgroundColor: '#1a1d24',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+  reactionButtonSecondary: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  infoPillLabel: {
-    color: '#c8b48e',
-    fontSize: 11,
+  reactionButtonLiked: {
+    backgroundColor: '#a44d5f',
+    borderColor: '#a44d5f',
+  },
+  reactionButtonDisliked: {
+    backgroundColor: '#46617f',
+    borderColor: '#46617f',
+  },
+  reactionButtonText: {
+    fontSize: 13,
     fontWeight: '700',
-    letterSpacing: 1.1,
-    textTransform: 'uppercase',
-    marginBottom: 6,
   },
-  infoPillValue: {
-    color: '#f7f3ec',
-    fontSize: 16,
-    fontWeight: '600',
+  detailButton: {
+    minHeight: 44,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    backgroundColor: '#efe3cc',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  detailButtonText: {
+    color: '#15161c',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  favouriteDailyArtBackButton: {
+    position: 'absolute',
+    left: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  artworkDetailContent: {
+    paddingHorizontal: 18,
+    paddingBottom: 40,
+  },
+  artworkDetailPanel: {
+    marginTop: 18,
   },
   essayBody: {
     color: '#b0b4bd',
     fontSize: 16,
     lineHeight: 30,
     marginBottom: 12,
-    textAlign: 'justify'
+    textAlign: 'justify',
   },
   essayBodyLast: {
     marginBottom: 0,
-  },
-  footerCard: {
-    marginTop: 10,
-    backgroundColor: '#12151d',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 234, 214, 0.05)',
-  },
-  footerCardTitle: {
-    color: '#f3efe7',
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  footerCardText: {
-    color: '#959aa5',
-    fontSize: 15,
-    lineHeight: 24,
-  },
-  footerActionRow: {
-    marginTop: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  pageIndicatorWrap: {
-    position: 'absolute',
-    alignSelf: 'center',
-    alignItems: 'center',
-    gap: 10,
-  },
-  pageIndicatorKicker: {
-    color: '#8f949d',
-    fontSize: 12,
-    letterSpacing: 1.7,
-    textTransform: 'uppercase',
-    fontWeight: '700',
-  },
-  pageIndicatorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(8, 9, 13, 0.76)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 999,
-  },
-  pageIndicatorDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(244, 239, 232, 0.25)',
-  },
-  pageIndicatorDotActive: {
-    width: 26,
-    backgroundColor: '#e7d2ae',
   },
   tabBar: {
     position: 'absolute',
@@ -1225,8 +1706,8 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 10,
     borderTopWidth: 0,
-    borderTopLeftRadius:24,
-    borderTopRightRadius:24,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     backgroundColor: 'rgba(8, 9, 13, 0.96)',
     elevation: 0,
   },
@@ -1253,6 +1734,350 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 10,
     textAlign: 'center',
+  },
+  favouritesHeader: {
+    marginBottom: 16,
+  },
+  favouritesListContent: {
+    paddingHorizontal: 20,
+    gap: 14,
+  },
+  favouriteCard: {
+    borderRadius: 28,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  favouriteImage: {
+    width: '100%',
+    height: 220,
+  },
+  favouriteCardBody: {
+    padding: 18,
+  },
+  favouriteCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 12,
+  },
+  favouriteDayLabel: {
+    fontSize: 12,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    fontWeight: '700',
+  },
+  reactionBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  reactionBadgeLiked: {
+    backgroundColor: '#a44d5f',
+  },
+  reactionBadgeDisliked: {
+    backgroundColor: '#46617f',
+  },
+  reactionBadgeText: {
+    color: '#fff8ef',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  favouriteTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  favouriteSubtitle: {
+    marginTop: 6,
+    fontSize: 14,
+  },
+  favouriteEssayPreview: {
+    marginTop: 12,
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  profileScreen: {
+    flex: 1,
+  },
+  profileTopGlow: {
+    position: 'absolute',
+    top: 40,
+    right: -16,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: 'rgba(109, 146, 255, 0.15)',
+  },
+  profileBottomGlow: {
+    position: 'absolute',
+    left: -40,
+    bottom: 150,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(255, 170, 109, 0.12)',
+  },
+  profileContent: {
+    paddingHorizontal: 20,
+    gap: 18,
+  },
+  profileHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  profileEyebrow: {
+    fontSize: 12,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    fontWeight: '700',
+  },
+  profileHeaderButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileHeroCard: {
+    overflow: 'hidden',
+    borderRadius: 30,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    shadowColor: '#000',
+    shadowOpacity: 0.28,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 12,
+  },
+  profileHeroAccent: {
+    position: 'absolute',
+    top: -20,
+    right: -20,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  profileHeroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  profileAvatar: {
+    width: 88,
+    height: 88,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  profileHeroCopy: {
+    flex: 1,
+  },
+  profileName: {
+    color: '#f8f5ef',
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: '800',
+  },
+  profileRole: {
+    marginTop: 4,
+    color: '#d7def4',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  profileLocationRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  profileLocation: {
+    color: '#c6d4f7',
+    fontSize: 13,
+  },
+  profileBio: {
+    marginTop: 18,
+    color: '#eef3ff',
+    fontSize: 16,
+    lineHeight: 25,
+  },
+  profileActionRow: {
+    marginTop: 22,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  profilePrimaryButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f6eee2',
+  },
+  profilePrimaryButtonText: {
+    color: '#17213b',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  profileSecondaryButton: {
+    minHeight: 52,
+    paddingHorizontal: 18,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  profileSecondaryButtonText: {
+    color: '#f3efe8',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  profileStatsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  profileStatCard: {
+    flex: 1,
+    borderRadius: 24,
+    paddingVertical: 18,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+  },
+  profileStatValue: {
+    color: '#fff8ef',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  profileStatLabel: {
+    marginTop: 6,
+    color: '#9cb1df',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  profileSectionHeader: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  profileSectionTitle: {
+    fontSize: 21,
+    fontWeight: '800',
+  },
+  profileSectionTag: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  profileAboutCard: {
+    borderRadius: 28,
+    padding: 20,
+    backgroundColor: '#f4ede1',
+  },
+  profileAboutText: {
+    color: '#23304d',
+    fontSize: 15,
+    lineHeight: 24,
+  },
+  profileSkillWrap: {
+    marginTop: 18,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  profileSkillChip: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#dde5f8',
+  },
+  profileSkillText: {
+    color: '#23304d',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  profileTimelineCard: {
+    flexDirection: 'row',
+    gap: 14,
+    borderRadius: 26,
+    padding: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  profileTimelineIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  profileTimelineBody: {
+    flex: 1,
+    gap: 4,
+  },
+  profileTimelineHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  profileTimelineTitle: {
+    flex: 1,
+    color: '#fbf7f0',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  profileTimelinePeriod: {
+    color: '#96a9d6',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  profileTimelineSubtitle: {
+    color: '#d3def8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  profileTimelineDetail: {
+    marginTop: 4,
+    color: '#b8c6ea',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  profileLinkRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  profileLinkCard: {
+    flex: 1,
+    minHeight: 96,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#1a2340',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  profileLinkLabel: {
+    color: '#eef3ff',
+    fontSize: 13,
+    fontWeight: '700',
   },
   settingsScreen: {
     flex: 1,

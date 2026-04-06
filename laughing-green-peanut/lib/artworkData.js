@@ -1,16 +1,39 @@
-import { ARTWORKS_SEED } from '../data/artworksSeed';
-import { getInstallStartDate, getLocalArtworks } from './localDatabase';
+import {
+  getInstallStartDate,
+  getLocalArtworks,
+  getLocalArtworksUpToDay,
+  hasLocalArtworkForDay,
+  hasLocalArtworksForDayRange,
+  upsertLocalArtworks,
+} from './localDatabase';
 import { getSupabasePublicUrl, isSupabaseConfigured, supabase, supabaseStorageBucket } from './supabase';
 
 export const FALLBACK_IMAGE_URL = 'https://upload.wikimedia.org/wikipedia/commons/0/0a/The_Great_Wave_off_Kanagawa.jpg';
 export const DATA_SOURCE = process.env.EXPO_PUBLIC_DATA_SOURCE === 'supabase' ? 'supabase' : 'local';
+
+export async function loadArtworkCatalog() {
+  if (DATA_SOURCE === 'local') {
+    const installStartDate = await getInstallStartDate();
+    const currentDay = getCurrentDayNumber(installStartDate);
+    const localRows = await getLocalArtworksUpToDay(currentDay);
+    return sortArtworksByDayAsc(localRows.map(normalizeArtwork));
+  }
+
+  const installStartDate = await getInstallStartDate();
+  const currentDay = getCurrentDayNumber(installStartDate);
+
+  await ensureLocalArtworkWindow(currentDay);
+
+  const localRows = await getLocalArtworksUpToDay(currentDay);
+  return sortArtworksByDayAsc(localRows.map(normalizeArtwork));
+}
 
 export async function loadArtworksForCurrentDay() {
   const installStartDate = await getInstallStartDate();
   const currentDay = getCurrentDayNumber(installStartDate);
 
   if (DATA_SOURCE === 'local') {
-    const localRows = await getLocalArtworks();
+    const localRows = await getLocalArtworksUpToDay(currentDay);
     const artworks = filterArtworksForDay(localRows.map(normalizeArtwork), currentDay);
     return {
       artworks: sortArtworksByDayAsc(artworks),
@@ -19,34 +42,47 @@ export async function loadArtworksForCurrentDay() {
     };
   }
 
+  await ensureLocalArtworkWindow(currentDay);
+
+  const localRows = await getLocalArtworksUpToDay(currentDay);
+  const artworks = filterArtworksForDay(localRows.map(normalizeArtwork), currentDay);
+
+  return {
+    artworks: sortArtworksByDayAsc(artworks),
+    currentDay,
+    installStartDate,
+  };
+}
+
+async function ensureLocalArtworkWindow(currentDay) {
+  const hasRequiredArtwork = await hasLocalArtworkForDay(currentDay);
+  const hasPreviousArtworkHistory = await hasLocalArtworksForDayRange(1, currentDay);
+
+  if ((hasRequiredArtwork && hasPreviousArtworkHistory) || DATA_SOURCE !== 'supabase') {
+    return;
+  }
+
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Supabase is not configured. Set EXPO_PUBLIC_DATA_SOURCE=local or add Supabase env vars.');
   }
 
+  const syncEndDay = currentDay + 5;
   const { data, error } = await supabase
     .from('artworks')
     .select('*')
-    .lte('day', currentDay)
+    .gte('day', 1)
+    .lte('day', syncEndDay)
     .order('day', { ascending: true });
 
   if (error) {
     throw error;
   }
 
-  if (!Array.isArray(data) || data.length === 0) {
-    const artworks = filterArtworksForDay(ARTWORKS_SEED.map(normalizeArtwork), currentDay);
-    return {
-      artworks: sortArtworksByDayAsc(artworks),
-      currentDay,
-      installStartDate,
-    };
-  }
+  const normalizedArtworks = Array.isArray(data) ? data.map(normalizeArtwork) : [];
 
-  return {
-    artworks: sortArtworksByDayAsc(data.map(normalizeArtwork)),
-    currentDay,
-    installStartDate,
-  };
+  if (normalizedArtworks.length > 0) {
+    await upsertLocalArtworks(normalizedArtworks);
+  }
 }
 
 export function normalizeArtwork(item) {
